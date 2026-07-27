@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<style>
+  :root {
+    --blue-900: #1a3a6b;
+    --blue-700: #2563a8;
+    --blue-600: #2f74c0;
+    --blue-500: #3b82d6;
+    --blue-050: #eef4fb;
+    --blue-100: #dce8f7;
+    --ink:      #1f2733;
+    --ink-soft: #5a6675;
+    --line:     #e2e8f0;
+    --bg:       #f7f9fc;
+    --white:    #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5;
+  }
+
+  header { background: var(--white); border-bottom: 2px solid var(--blue-700); padding: 0 32px; }
+  .header-inner {
+    max-width: 1520px; margin: 0 auto; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 { font-size: 20px; font-weight: 700; color: var(--blue-900); letter-spacing: -0.02em; }
+  .brand .sub { font-size: 12px; color: var(--ink-soft); }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .back-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 13px; color: var(--blue-700); text-decoration: none;
+  }
+  .back-link:hover { text-decoration: underline; }
+  .back-link svg { width: 14px; height: 14px; }
+
+  main { max-width: 1520px; margin: 0 auto; padding: 28px 32px; }
+  .page-title { font-size: 18px; font-weight: 700; color: var(--blue-900); margin-bottom: 16px; }
+
+  .board { background: var(--white); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+
+  .help-section { padding: 22px 28px; border-bottom: 1px solid var(--line); }
+  .help-section:last-child { border-bottom: none; }
+  .help-section h2 {
+    font-size: 15px; font-weight: 700; color: var(--blue-900); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .help-section .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--blue-050); color: var(--blue-700); font-size: 12px; font-weight: 700;
+  }
+  .help-section p { color: var(--ink-soft); font-size: 13.5px; }
+  .placeholder {
+    display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 4px;
+    background: var(--blue-050); color: var(--blue-700); font-size: 12px; font-weight: 600;
+  }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <h1>강의 컨텐츠 관리</h1>
+        <span class="sub">도움말</span>
+      </div>
+      <div class="header-right">
+        <a class="back-link" href="<?= baseUrl ?>">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12"></line>
+            <polyline points="12 19 5 12 12 5"></polyline>
+          </svg>
+          대시보드로 돌아가기
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="page-title">사용 방법</div>
+
+    <div class="board">
+      <div class="help-section">
+        <h2><span class="num">1</span>강의 배포하기</h2>
+        <p>내용 준비 중입니다. (임시 내용)</p>
+        <span class="placeholder">추후 편집 예정</span>
+      </div>
+      <div class="help-section">
+        <h2><span class="num">2</span>뷰어 URL 공유 / 복사</h2>
+        <p>내용 준비 중입니다. (임시 내용)</p>
+        <span class="placeholder">추후 편집 예정</span>
+      </div>
+      <div class="help-section">
+        <h2><span class="num">3</span>시험문제 생성</h2>
+        <p>내용 준비 중입니다. (임시 내용)</p>
+        <span class="placeholder">추후 편집 예정</span>
+      </div>
+      <div class="help-section">
+        <h2><span class="num">4</span>실시간 설문 진행</h2>
+        <p>내용 준비 중입니다. (임시 내용)</p>
+        <span class="placeholder">추후 편집 예정</span>
+      </div>
+      <div class="help-section">
+        <h2><span class="num">5</span>문의</h2>
+        <p>내용 준비 중입니다. (임시 내용)</p>
+        <span class="placeholder">추후 편집 예정</span>
+      </div>
+    </div>
+  </main>
+
+</body>
+</html>

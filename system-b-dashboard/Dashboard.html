@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<base target="_top">
+<style>
+  :root {
+    --blue-900: #1a3a6b;
+    --blue-700: #2563a8;
+    --blue-600: #2f74c0;
+    --blue-500: #3b82d6;
+    --blue-050: #eef4fb;
+    --blue-100: #dce8f7;
+    --ink:      #1f2733;
+    --ink-soft: #5a6675;
+    --line:     #e2e8f0;
+    --bg:       #f7f9fc;
+    --white:    #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5;
+  }
+
+  header { background: var(--white); border-bottom: 2px solid var(--blue-700); padding: 0 32px; }
+  .header-inner {
+    max-width: 1520px; margin: 0 auto; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 { font-size: 20px; font-weight: 700; color: var(--blue-900); letter-spacing: -0.02em; }
+  .brand .sub { font-size: 12px; color: var(--ink-soft); }
+  .header-right { display: flex; align-items: center; gap: 20px; }
+  .help-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 13px; color: var(--blue-700); text-decoration: none;
+  }
+  .help-link:hover { text-decoration: underline; }
+  .help-link svg { width: 14px; height: 14px; }
+
+  .btn-primary {
+    background: var(--blue-700); color: var(--white); border: none; border-radius: 6px;
+    padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .btn-primary:hover { background: var(--blue-900); }
+
+  main { max-width: 1520px; margin: 0 auto; padding: 28px 32px; }
+  .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .toolbar .count { font-size: 13px; color: var(--ink-soft); }
+  .toolbar .count strong { color: var(--blue-700); }
+
+  .board { background: var(--white); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    background: var(--blue-050); color: var(--blue-900); font-size: 12.5px; font-weight: 700;
+    text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--blue-100); white-space: nowrap;
+  }
+  tbody td { padding: 7px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: #fafcff; }
+
+  .col-num   { width: 48px;  text-align: center; color: var(--ink-soft); }
+  .col-key   { width: 120px; }
+  .col-title { min-width: 200px; }
+  .col-time  { width: 150px; white-space: nowrap; color: var(--ink-soft); font-size: 13px; }
+  .col-url   { width: 130px; }
+  .col-act   { width: 300px; white-space: nowrap; }
+
+  .keyword {
+    display: inline-block; background: var(--blue-050); color: var(--blue-700);
+    font-weight: 600; font-size: 12.5px; padding: 3px 9px; border-radius: 5px;
+  }
+  .title-text { font-weight: 600; color: var(--ink); }
+
+  .url-cell { display: flex; align-items: center; gap: 6px; max-width: 130px; }
+  .url-ellipsis {
+    font-size: 12.5px; color: var(--ink-soft); font-family: 'Consolas', monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; }
+  .btn {
+    border: 1px solid var(--blue-100); background: var(--white); color: var(--blue-700);
+    border-radius: 5px; padding: 4px 9px; font-size: 12px; font-weight: 500;
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { background: var(--blue-050); border-color: var(--blue-500); }
+  .btn-strong { background: var(--blue-600); color: var(--white); border-color: var(--blue-600); }
+  .btn-strong:hover { background: var(--blue-900); border-color: var(--blue-900); }
+
+  .btn-icon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; padding: 0; flex: none;
+    border: 1px solid var(--blue-100); background: var(--white); color: var(--blue-700);
+    border-radius: 5px; cursor: pointer;
+  }
+  .btn-icon:hover { background: var(--blue-050); border-color: var(--blue-500); }
+  .btn-icon svg { width: 14px; height: 14px; }
+
+  .empty { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
+  .loading { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
+
+  #toast {
+    position: fixed; bottom: 28px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--blue-900); color: var(--white);
+    padding: 10px 20px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <h1>강의 컨텐츠 관리</h1>
+        <span class="sub">사용법은 도움말을 참고하세요.</span>
+      </div>
+      <div class="header-right">
+        <a class="help-link" href="<?= baseUrl ?>?page=help" target="_blank">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18h6"></path>
+            <path d="M10 22h4"></path>
+            <path d="M15.09 14c.3-.6.68-1.05 1.16-1.54A6 6 0 1 0 7.75 12.5c.48.49.86.94 1.16 1.5.34.65.51 1.34.51 2h5.16c0-.66.17-1.35.51-2z"></path>
+          </svg>
+          도움말
+        </a>
+        <button class="btn-primary" onclick="openNewLecture()">+ 새 강의 추가하기</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="toolbar">
+      <div class="count">전체 <strong id="totalCount">-</strong>개 강의</div>
+    </div>
+
+    <div class="board">
+      <table>
+        <thead>
+          <tr>
+            <th class="col-num">번호</th>
+            <th class="col-key">키워드</th>
+            <th class="col-title">강의 제목</th>
+            <th class="col-time">최종 배포</th>
+            <th class="col-url">뷰어 URL</th>
+            <th class="col-act">기능</th>
+          </tr>
+        </thead>
+        <tbody id="lectureList">
+          <tr><td colspan="6"><div class="loading">강의 목록을 불러오는 중…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+
+  <div id="toast"></div>
+
+<script>
+  // ===== 서버에서 강의 목록 로드 =====
+  function loadList() {
+    google.script.run
+      .withSuccessHandler(renderList)
+      .withFailureHandler(function (err) {
+        document.getElementById('lectureList').innerHTML =
+          '<tr><td colspan="6"><div class="empty">목록을 불러오지 못했습니다: ' +
+          esc(err.message) + '</div></td></tr>';
+      })
+      .getLectureList();
+  }
+
+  // 아이콘 버튼용 SVG (URL 복사 / 뷰어 열기) - 마우스오버 시 title 속성이 풍선도움말로 표시됨
+  var ICON_COPY =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect>' +
+    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  var ICON_OPEN =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+    'stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>' +
+    '<polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
+
+  function renderList(data) {
+    var tbody = document.getElementById('lectureList');
+    document.getElementById('totalCount').textContent = data.length;
+
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty">' +
+        '아직 배포된 강의가 없습니다. 우측 상단 [새 강의 추가하기]로 시작하세요.' +
+        '</div></td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(function (row, i) {
+      return '<tr>' +
+        '<td class="col-num">' + (i + 1) + '</td>' +
+        '<td><span class="keyword">' + esc(row.keyword) + '</span></td>' +
+        '<td><span class="title-text">' + esc(row.title) + '</span></td>' +
+        '<td class="col-time">' + esc(row.updated) + '</td>' +
+        '<td><div class="url-cell"><span class="url-ellipsis" title="' + esc(row.viewerUrl) + '">' +
+            shortUrl(row.viewerUrl) + '</span></div></td>' +
+        '<td><div class="actions">' +
+          '<button class="btn-icon" title="URL 복사" onclick="copyUrl(\'' + esc(row.viewerUrl) + '\')">' + ICON_COPY + '</button>' +
+          '<button class="btn-icon" title="뷰어 열기" onclick="openViewer(\'' + esc(row.viewerUrl) + '\')">' + ICON_OPEN + '</button>' +
+          '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')">시험문제 생성</button>' +
+          '<button class="btn" onclick="editDeploy(\'' + esc(row.keyword) + '\')">배포 수정</button>' +
+          '<button class="btn btn-strong" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
+        '</div></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  function shortUrl(url) {
+    if (!url) return '<span style="color:#b0b8c4">미설정</span>';
+    if (url.length <= 28) return esc(url);
+    return esc(url.slice(0, 24)) + '…';
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+    });
+  }
+
+  // ===== 버튼 동작 (실제 연동은 이후 단계) =====
+  function copyUrl(url) {
+    if (!url) { showToast('뷰어 URL이 아직 설정되지 않았습니다'); return; }
+    var ta = document.createElement('textarea');
+    ta.value = url; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); showToast('뷰어 URL을 복사했습니다'); }
+    catch (e) { showToast('복사에 실패했습니다'); }
+    document.body.removeChild(ta);
+  }
+  function openViewer(url) {
+    if (!url) { showToast('뷰어 URL이 아직 설정되지 않았습니다'); return; }
+    window.open(url, '_blank');
+  }
+  function makeQuiz(key)    { showToast('시험문제 생성: ' + key + ' (준비 중)'); }
+  function editDeploy(key)  { showToast('배포 수정: ' + key + ' (준비 중)'); }
+  function openSurvey(key)  { showToast('실시간 설문: ' + key + ' (준비 중)'); }
+  function openNewLecture() { showToast('새 강의 추가 (준비 중)'); }
+
+  var toastTimer;
+  function showToast(msg) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2000);
+  }
+
+  // 초기 로드
+  loadList();
+</script>
+</body>
+</html>
