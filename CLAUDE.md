@@ -30,7 +30,10 @@
 | `system-b-dashboard` | 시스템 B 강사 대시보드 | 강사 본인 | 조직 내 | 파일 배포·실시간 설문·시험문제 생성. 게시 작업은 게시엔진에 위임 |
 | `system-c-excel` | 시스템 C 엑셀 분석 | 관리자·실무자 | 조직 내 | 엑셀 업로드→스프레드시트 변환, 통계·보고서·홍보자료 자동생성 (별도 대시보드) |
 
-개발 순서: **게시엔진 → 시스템 A → 시스템 B → 시스템 C**. 현재 `publish-engine`만 생성됨.
+개발 순서: **게시엔진 → 시스템 A → 시스템 B → 시스템 C**.
+현재 `publish-engine`(설정 허브 완성) + `system-b-dashboard`(기본 골격 완성, 목록 조회까지 동작)
+생성됨. `system-a-viewer`, `system-c-excel`은 아직 미생성. 자세한 진행 상황은 아래
+["진행 상황"](#진행-상황-2026-07-27-기준) 참고.
 
 ---
 
@@ -149,6 +152,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 7. 웹앱의 실행 계정·액세스 대상 설정은 **코드로 못 바꿈** → 배포 시 수동 설정.
    그 점을 전제로 코드를 짜고, 필요한 배포 설정을 주석/문서로 안내.
 8. 함수/변수명은 명확하게. 주석은 한국어로, 핵심 로직 위주로 간결하게.
+9. 터미널에서의 질문과 설명은 모두 한국어로 한다.
 
 ---
 
@@ -162,9 +166,9 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 ### 폴더 구조(목표)
 ```
 dsacontents/
-├── publish-engine/        (게시엔진 - 생성됨)
+├── publish-engine/        (게시엔진 - 생성됨, 설정 허브 완성)
 ├── system-a-viewer/       (시스템 A - 예정)
-├── system-b-dashboard/    (시스템 B - 예정)
+├── system-b-dashboard/    (시스템 B - 생성됨, 기본 골격 완성)
 ├── system-c-excel/        (시스템 C - 예정)
 ├── docs/                  (문서)
 ├── CLAUDE.md
@@ -175,3 +179,80 @@ dsacontents/
 ### 작업 루프
 Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에서) →
 구글에서 실행/배포 확인 → 문제시 수정 → 잘 되면 `git commit`.
+
+---
+
+## 진행 상황 (2026-07-27 기준)
+
+### publish-engine (게시엔진)
+- `Config.js`가 **중앙 설정 허브**로 완성됨. 스크립트 속성에 공용 키
+  (`PARENT_FOLDER_ID`, `DB_SHEET_ID`, `VIEWER_URL`)와 민감 키
+  (`GEMINI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`)를 등록해두면, 다른 프로젝트는
+  라이브러리로 붙여서 `PublishEngine.getConfig()` / `getPublicConfig()` /
+  `getSetting(name)` / `getSecret(name)`으로 가져다 쓴다.
+  - ⚠️ `VIEWER_URL`은 아직 빈 값(시스템 A 미배포). 시스템 A 배포 후
+    반드시 `setAllProperties()` 또는 스크립트 속성 화면에서 채울 것.
+- `SlideParser.js`, `Test.js` 존재(슬라이드ID 추출·목차 추출 관련, 배포
+  워크플로 함수는 이후 단계에서 계속 채워나가는 중).
+
+### system-b-dashboard (시스템 B 대시보드)
+- `clasp create`로 신규 GAS 프로젝트 생성 완료(scriptId는 `.clasp.json`에 있음).
+- `appsscript.json`: `webapp.executeAs = USER_ACCESSING`, `webapp.access = DOMAIN`
+  으로 설정 — "강사 본인 실행 / 조직 내 사용자만 접근" 설계와 일치.
+- `Code.js`: `doGet(e)`가 `?page=help`면 `Help.html`, 아니면 `Dashboard.html`을
+  렌더링. `getLectureList()`가 `PublishEngine.getPublicConfig()`로 `DB_SHEET_ID`,
+  `VIEWER_URL`을 받아와 DB 스프레드시트에서 강의 목록을 읽어 반환.
+  - `PublishEngine` 라이브러리는 이미 추가됨(`appsscript.json`의
+    `dependencies.libraries`에 `libraryId` 등록 확인됨, `developmentMode: true`
+    → 게시엔진 HEAD 최신 코드를 항상 사용). 배포 전엔 `developmentMode`를
+    `false`로 바꾸고 고정 버전을 지정하는 것도 고려할 것(안정성).
+- `Dashboard.html`: 강의 목록 표 + 아이콘 버튼(URL복사·뷰어열기, 마우스오버 시
+  풍선도움말) 동작. **"시험문제 생성" · "배포 수정" · "실시간 설문" · "새 강의
+  추가하기"는 전부 토스트만 뜨는 스텁**(`(준비 중)`) — 아직 실제 기능 미구현.
+- `Help.html`: 대시보드와 동일한 톤의 도움말 페이지. 5개 섹션 전부 "내용 준비
+  중입니다" 임시 텍스트 — 추후 실제 사용법으로 교체 필요.
+- 현재 배포는 2개 확인됨: `@HEAD`(테스트용, 항상 최신 코드 반영) / `@3`(고정
+  버전). 운영 중인 웹앱 URL이 `@3` 같은 고정 버전이면 push만으로는 반영 안 됨
+  → 아래 "실행/배포 시 주의사항" 참고.
+
+### 미착수
+- `system-a-viewer`, `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
+- 실시간 설문, 시험문제 생성, AI(`callAI_()`) 연동 전부 미구현.
+
+---
+
+## 실행/배포 시 주의사항
+
+1. **HtmlService 페이지 내 링크는 상대경로로 쓰면 안 됨.**
+   웹앱 화면은 실제로 `script.googleusercontent.com`의 iframe 안에서 렌더링되므로
+   `href="?page=help"` 같은 상대경로는 그 iframe 주소 기준으로 풀려 엉뚱한 곳으로
+   간다(새 탭은 뜨는데 내용이 빔). **`doGet`에서 `ScriptApp.getService().getUrl()`
+   로 얻은 절대 URL을 템플릿 변수로 넘겨(`tpl.baseUrl = ...`) `<?= baseUrl ?>`로
+   써야** 정상 동작한다. (system-b-dashboard의 `Dashboard.html`/`Help.html`에 이미
+   적용됨 — 새 화면 추가 시 같은 패턴을 따를 것.)
+2. **`clasp push`는 코드 동기화일 뿐, 배포와 다르다.**
+   웹앱 URL이 고정 버전 배포(`/exec`, 예: `@3`)라면 push 후에도 그 URL은 이전
+   코드로 계속 응답한다. 반영하려면 Apps Script 편집기에서 **배포 관리 → 새 버전
+   으로 배포**를 해야 한다. 반면 "테스트 배포"용 `/dev` URL이나 `@HEAD` 배포는
+   push 직후 새로고침만 해도 최신 코드가 반영된다. 헷갈리면 지금 접속 중인 URL이
+   `/dev`인지 `/exec`인지, 배포 버전이 몇 번인지부터 확인할 것.
+3. **웹앱의 "실행 계정"·"액세스 대상"은 배포 화면에서 수동 설정.**
+   `appsscript.json`의 `webapp.executeAs`/`webapp.access`는 새 배포 생성 시
+   기본값으로 반영되긴 하지만, 실제로 그렇게 배포됐는지 배포 화면에서 한 번은
+   육안으로 확인해야 한다(특히 접근 권한 "조직 내 사용자"로 뜨는지).
+4. **라이브러리 호출은 호출자(현재 로그인한 강사) 권한으로 실행된다.**
+   시스템 B가 `PublishEngine`을 GAS 라이브러리로 단순 추가해서 부르는 방식이면,
+   게시엔진 코드는 게시엔진 소유자가 아니라 **강사 본인의 Drive 권한**으로 실행
+   된다. 공유 드라이브 관리자 권한이 필요한 동작(슬라이드 공유 설정 등)을
+   게시엔진이 실제로 수행해야 한다면, 이 방식으로는 강사 계정에 권한이 없어
+   실패할 수 있다 — 그 경우 게시엔진을 별도로 "관리자 실행" 웹앱/API 실행형으로
+   배포해두고 `UrlFetchApp`으로 호출하는 방식으로 바꿔야 한다(아직 미결정 사항,
+   배포 기능 실제 구현 시 다시 검토).
+5. **배포 시스템별 실행/접근 조합 (설계 확정값)**
+
+   | 시스템 | 실행(executeAs) | 접근(access) | 이유 |
+   |---|---|---|---|
+   | 시스템 A (뷰어) | 나(관리자, `USER_DEPLOYING`) | 모든 사용자(`ANYONE`/`ANYONE_ANONYMOUS`) | 수강생 로그인 없이 열람해야 함 |
+   | 시스템 B (대시보드) | 액세스하는 사용자(`USER_ACCESSING`) | 조직 내(`DOMAIN`) | 강사 본인 권한으로 실행, 사내 인증 필요 |
+   | 시스템 C (엑셀분석) | 액세스하는 사용자(`USER_ACCESSING`) | 조직 내(`DOMAIN`) | 시스템 B와 동일 원칙 |
+
