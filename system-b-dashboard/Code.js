@@ -76,6 +76,29 @@ function getLectureList() {
     });
 }
 
+/**
+ * 대시보드의 [배포] 버튼에서 호출: 새 강의 추가/배포 수정 공용.
+ * 실제 처리는 배포엔진에 위임(다리 역할).
+ * isNew=true("새 강의 추가")인데 이미 있는 키워드면 등록을 막는다 — 기존 강의
+ * 수정은 반드시 목록의 "배포 수정"(isNew=false)으로만 하도록 강제.
+ * @return {Object} { keyword, title, slideId, viewerUrl }
+ */
+function deployLecture(url, keyword, title, isNew) {
+  const cleanUrl = String(url || '').trim();
+  const cleanKeyword = String(keyword || '').trim();
+  const cleanTitle = String(title || '').trim();
+
+  if (!cleanUrl || !cleanKeyword || !cleanTitle) {
+    throw new Error('키워드, 제목, 슬라이드 URL을 모두 입력하세요.');
+  }
+
+  if (isNew && PublishEngine.lectureExists(cleanKeyword)) {
+    throw new Error('이미 등록된 키워드입니다: ' + cleanKeyword + ' (기존 강의는 목록의 "배포 수정"으로 변경하세요)');
+  }
+
+  return PublishEngine.publishLecture(cleanUrl, cleanKeyword, cleanTitle);
+}
+
 /** 날짜 값을 'yyyy-MM-dd HH:mm' 문자열로 변환. */
 function formatDate_(value) {
   if (!value) return '';

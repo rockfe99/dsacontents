@@ -98,6 +98,46 @@
   .btn-icon:hover { background: var(--blue-050); border-color: var(--blue-500); }
   .btn-icon svg { width: 14px; height: 14px; }
 
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(26,58,107,.35);
+    align-items: center; justify-content: center; z-index: 100; padding: 20px;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--white); border-radius: 10px; width: 420px; max-width: 100%;
+    box-shadow: 0 12px 40px rgba(26,58,107,.25); overflow: hidden;
+  }
+  .modal-header {
+    padding: 18px 22px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-header h3 { font-size: 15px; font-weight: 700; color: var(--blue-900); }
+  .modal-close {
+    border: none; background: none; cursor: pointer; color: var(--ink-soft);
+    font-size: 18px; line-height: 1; padding: 4px;
+  }
+  .modal-close:hover { color: var(--ink); }
+  .modal-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft); margin-bottom: 5px; }
+  .field input {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 13.5px; font-family: inherit; color: var(--ink);
+  }
+  .field input:focus { outline: none; border-color: var(--blue-500); }
+  .field input:disabled { background: var(--bg); color: var(--ink-soft); }
+  .field .hint { margin-top: 4px; font-size: 11.5px; color: var(--ink-soft); }
+  .field .hint.hint-error { color: #c0392b; font-weight: 600; }
+  .modal-footer {
+    padding: 14px 22px; border-top: 1px solid var(--line);
+    display: flex; justify-content: flex-end; gap: 8px;
+  }
+  .btn-ghost {
+    border: 1px solid var(--line); background: var(--white); color: var(--ink-soft);
+    border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-ghost:hover { background: var(--bg); }
+
   .empty { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
   .loading { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
 
@@ -158,6 +198,34 @@
     </div>
   </main>
 
+  <div class="modal-overlay" id="lectureModalOverlay" onclick="if (event.target === this) closeLectureModal();">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modalTitle">새 강의 추가</h3>
+        <button class="modal-close" onclick="closeLectureModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label for="fieldKeyword">키워드</label>
+          <input type="text" id="fieldKeyword" placeholder="예: react-basic" oninput="onKeywordInput()">
+          <div class="hint" id="keywordHint"></div>
+        </div>
+        <div class="field">
+          <label for="fieldTitle">강의 제목</label>
+          <input type="text" id="fieldTitle" placeholder="예: 리액트 기초">
+        </div>
+        <div class="field">
+          <label for="fieldUrl">슬라이드 편집 URL</label>
+          <input type="text" id="fieldUrl" placeholder="https://docs.google.com/presentation/d/...">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeLectureModal()">취소</button>
+        <button class="btn-primary" id="modalSubmitBtn" onclick="submitLecture()">배포</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
 
 <script>
@@ -183,7 +251,11 @@
     'stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>' +
     '<polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>';
 
+  var lectureData = [];
+  var currentModalMode = 'new';
+
   function renderList(data) {
+    lectureData = data;
     var tbody = document.getElementById('lectureList');
     document.getElementById('totalCount').textContent = data.length;
 
@@ -239,9 +311,97 @@
     window.open(url, '_blank');
   }
   function makeQuiz(key)    { showToast('시험문제 생성: ' + key + ' (준비 중)'); }
-  function editDeploy(key)  { showToast('배포 수정: ' + key + ' (준비 중)'); }
   function openSurvey(key)  { showToast('실시간 설문: ' + key + ' (준비 중)'); }
-  function openNewLecture() { showToast('새 강의 추가 (준비 중)'); }
+
+  // ===== 새 강의 추가 / 배포 수정 모달 =====
+  function openNewLecture() { openLectureModal('new', null); }
+
+  function editDeploy(key) {
+    var item = lectureData.filter(function (r) { return r.keyword === key; })[0];
+    if (!item) { showToast('강의 정보를 찾을 수 없습니다'); return; }
+    openLectureModal('edit', item);
+  }
+
+  function openLectureModal(mode, item) {
+    currentModalMode = mode;
+    var kwInput    = document.getElementById('fieldKeyword');
+    var titleInput = document.getElementById('fieldTitle');
+    var urlInput   = document.getElementById('fieldUrl');
+    var hint       = document.getElementById('keywordHint');
+    var submitBtn  = document.getElementById('modalSubmitBtn');
+
+    document.getElementById('modalTitle').textContent = mode === 'edit' ? '배포 수정' : '새 강의 추가';
+    kwInput.value = mode === 'edit' ? item.keyword : '';
+    titleInput.value = mode === 'edit' ? item.title : '';
+    urlInput.value = '';
+    kwInput.disabled = (mode === 'edit');
+    hint.classList.remove('hint-error');
+    hint.textContent = mode === 'edit'
+      ? '배포 수정에서는 키워드를 바꿀 수 없습니다. 새 슬라이드 URL을 입력하면 같은 뷰어 주소로 내용만 갱신됩니다.'
+      : '뷰어 주소(?k=키워드)에 고정으로 쓰입니다. 이미 있는 키워드는 등록할 수 없습니다(수정은 목록의 "배포 수정" 이용).';
+    submitBtn.disabled = false;
+
+    document.getElementById('lectureModalOverlay').classList.add('show');
+    (mode === 'edit' ? urlInput : kwInput).focus();
+  }
+
+  function closeLectureModal() {
+    document.getElementById('lectureModalOverlay').classList.remove('show');
+  }
+
+  /** 신규 등록 모드에서 키워드가 이미 목록에 있으면 즉시 경고 표시 + 배포 버튼 비활성화. */
+  function onKeywordInput() {
+    if (currentModalMode !== 'new') return;
+    var kw = document.getElementById('fieldKeyword').value.trim();
+    var hint = document.getElementById('keywordHint');
+    var submitBtn = document.getElementById('modalSubmitBtn');
+    var dup = kw && lectureData.some(function (r) { return r.keyword === kw; });
+
+    if (dup) {
+      hint.textContent = '이미 등록된 키워드입니다. 새로 등록할 수 없습니다 — 기존 강의는 목록의 "배포 수정"으로 변경하세요.';
+      hint.classList.add('hint-error');
+      submitBtn.disabled = true;
+    } else {
+      hint.textContent = '뷰어 주소(?k=키워드)에 고정으로 쓰입니다. 이미 있는 키워드는 등록할 수 없습니다(수정은 목록의 "배포 수정" 이용).';
+      hint.classList.remove('hint-error');
+      submitBtn.disabled = false;
+    }
+  }
+
+  function submitLecture() {
+    var keyword = document.getElementById('fieldKeyword').value.trim();
+    var title = document.getElementById('fieldTitle').value.trim();
+    var url = document.getElementById('fieldUrl').value.trim();
+
+    if (!keyword || !title || !url) {
+      showToast('키워드, 제목, URL을 모두 입력하세요');
+      return;
+    }
+
+    if (currentModalMode === 'new' && lectureData.some(function (r) { return r.keyword === keyword; })) {
+      showToast('이미 등록된 키워드입니다. 배포 수정으로 진행하세요.');
+      return;
+    }
+
+    var btn = document.getElementById('modalSubmitBtn');
+    btn.disabled = true;
+    btn.textContent = '배포 중…';
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        btn.disabled = false;
+        btn.textContent = '배포';
+        closeLectureModal();
+        showToast('"' + result.title + '" 배포 완료');
+        loadList();
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = '배포';
+        showToast('배포 실패: ' + err.message);
+      })
+      .deployLecture(url, keyword, title, currentModalMode === 'new');
+  }
 
   var toastTimer;
   function showToast(msg) {
