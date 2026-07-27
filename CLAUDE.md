@@ -78,6 +78,8 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 ### DB 스프레드시트 구조 (게시엔진이 없으면 헤더 자동 생성)
 - 교안 탭: `키워드 | 제목 | 슬라이드ID | 게시URL | 목차JSON | 최종수정`
 - 키워드가 고유 키. 배포 시 같은 키워드 행이 있으면 갱신, 없으면 추가.
+- `목차JSON` 컬럼은 JSON 원문을 셀에 넣지 않고, 목차데이터 폴더에 저장된
+  `키워드.json` 파일의 Drive 링크만 기록한다(`publish-engine/Publish.js` 구현).
 
 ---
 
@@ -192,8 +194,17 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   `getSetting(name)` / `getSecret(name)`으로 가져다 쓴다.
   - ⚠️ `VIEWER_URL`은 아직 빈 값(시스템 A 미배포). 시스템 A 배포 후
     반드시 `setAllProperties()` 또는 스크립트 속성 화면에서 채울 것.
-- `SlideParser.js`, `Test.js` 존재(슬라이드ID 추출·목차 추출 관련, 배포
-  워크플로 함수는 이후 단계에서 계속 채워나가는 중).
+- `SlideParser.js`: `extractSlideId(url)`, `extractSlideToc(slideId)` (밑줄 없는
+  이름 — 라이브러리 공개 함수라 그대로 유지).
+- `Publish.js`: **`publishLecture(url, keyword, title)`** 완성 — 배포 전체 흐름
+  (공유 설정 → 목차 추출 → `키워드.json` 저장 → DB 기록)을 이 함수 하나로 처리.
+  같은 키워드로 다시 호출하면 그대로 "배포 수정"이 됨(DB 행 갱신). 내부 헬퍼
+  `getOrCreateTocFolder_`, `saveTocJson_`, `writeDbRecord_`는 비공개(밑줄).
+  **`lectureExists(keyword)`** 추가(공개 함수) — 시스템 B가 "새 강의 추가" 시
+  중복 키워드 등록을 막는 데 사용.
+- `Test.js`: `testStep1()`(1단계), `testPublish()`(2단계, `publishLecture` 검증용)
+  — 편집기에서 직접 실행해서 확인하는 함수들. **`testPublish()`는 아직 편집기에서
+  실행해 검증 안 됨** — 다음 세션에서 가장 먼저 할 일.
 
 ### system-b-dashboard (시스템 B 대시보드)
 - `clasp create`로 신규 GAS 프로젝트 생성 완료(scriptId는 `.clasp.json`에 있음).
@@ -207,13 +218,42 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
     → 게시엔진 HEAD 최신 코드를 항상 사용). 배포 전엔 `developmentMode`를
     `false`로 바꾸고 고정 버전을 지정하는 것도 고려할 것(안정성).
 - `Dashboard.html`: 강의 목록 표 + 아이콘 버튼(URL복사·뷰어열기, 마우스오버 시
-  풍선도움말) 동작. **"시험문제 생성" · "배포 수정" · "실시간 설문" · "새 강의
-  추가하기"는 전부 토스트만 뜨는 스텁**(`(준비 중)`) — 아직 실제 기능 미구현.
+  풍선도움말) 동작. **"새 강의 추가하기"·"배포 수정"은 모달 폼으로 구현되어
+  `deployLecture()`를 호출**(화면 테스트는 아직 — 아래 체크리스트 참고).
+  **"시험문제 생성" · "실시간 설문"은 여전히 토스트만 뜨는 스텁**(`(준비 중)`).
 - `Help.html`: 대시보드와 동일한 톤의 도움말 페이지. 5개 섹션 전부 "내용 준비
   중입니다" 임시 텍스트 — 추후 실제 사용법으로 교체 필요.
 - 현재 배포는 2개 확인됨: `@HEAD`(테스트용, 항상 최신 코드 반영) / `@3`(고정
   버전). 운영 중인 웹앱 URL이 `@3` 같은 고정 버전이면 push만으로는 반영 안 됨
   → 아래 "실행/배포 시 주의사항" 참고.
+
+### 새 강의 추가/배포 수정 흐름 (진행 중)
+전체 설계: 강사가 시스템 B에서 키워드·제목·URL 입력 → `google.script.run`으로
+시스템 B의 `deployLecture(url, keyword, title, isNew)` 호출 → 그 함수가
+`PublishEngine.publishLecture()` 호출 → 성공 시 목록 새로고침.
+**"새 강의 추가"와 "배포 수정"은 내부적으로 같은 `publishLecture()`를 쓰지만,
+입력 단계에서 용도가 엄격히 구분된다** (2026-07-27 확정):
+- **새 강의 추가**(`isNew=true`): 키워드가 이미 DB에 있으면 등록 자체를 막는다.
+  모달에서 키워드 입력 즉시(`onKeywordInput()`) 클라이언트가 `lectureData`를
+  대조해 경고를 보여주고 배포 버튼을 비활성화하며, 제출 시에도 다시 확인한다.
+  최종 방어선은 서버: `deployLecture`가 `PublishEngine.lectureExists(keyword)`로
+  한 번 더 확인해 중복이면 에러를 던진다(클라이언트 목록이 오래됐을 경우 대비).
+- **배포 수정**(`isNew=false`): 목록의 [배포 수정] 버튼으로만 진입, 모달에서
+  키워드 입력칸이 비활성화되어 바꿀 수 없다 — 항상 그 키워드 행을 갱신.
+
+- [x] 1단계 — 배포엔진 `publishLecture()` 구현 (`Publish.js`)
+- [x] `testPublish()` 편집기에서 실행해 검증 완료(2026-07-27) — 공유 설정 변경,
+      `목차데이터/test01.json` 생성, DB 스프레드시트 행 추가까지 전부 확인됨.
+      (`viewerUrl`은 `VIEWER_URL` 미설정이라 빈 값 — 시스템 A 배포 전까지는 정상)
+- [x] 2단계 — 시스템 B `Dashboard.html`에 입력 폼(키워드·제목·URL) 모달 + [배포] 버튼
+      ("새 강의 추가하기"·"배포 수정" 버튼이 같은 모달을 연다. 배포 수정 모드는
+      키워드 입력칸을 비활성화해 실수로 새 행이 생기는 것을 방지)
+- [x] 3단계 — 시스템 B `Code.js`에 `deployLecture(url, keyword, title)` 추가
+      (입력값 trim/필수값 검증 후 `PublishEngine.publishLecture()` 호출하는 다리 역할)
+- [ ] 4단계 — **실제 웹앱 화면에서 폼 입력 → 배포 → 목록 자동 새로고침 + 성공/실패
+      알림까지 눈으로 확인** (아직 미검증 — 다음에 할 일)
+- [x] 대시보드의 "배포 수정" 버튼도 같은 `deployLecture()`를 재사용하도록 연결됨
+      (코드상 완료, 화면 테스트는 4단계에 포함)
 
 ### 미착수
 - `system-a-viewer`, `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
