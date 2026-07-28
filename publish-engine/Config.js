@@ -110,27 +110,4 @@ function checkSettings() {
   Logger.log(lines.join('\n'));
 }
 
-/**
- * ★한 번만 실행★  모든 설정값을 스크립트 속성에 일괄 등록.
- * 실제 값을 채운 뒤 실행. 이미 등록된 값은 setProperties가 덮어쓴다.
- * (또는 프로젝트 설정 > 스크립트 속성에서 직접 입력해도 됨)
- * 실행 후 보안을 위해 이 함수 안의 실제 키 값을 지우는 것을 권장.
- */
-function setAllProperties() {
-  const props = PropertiesService.getScriptProperties();
-  props.setProperties({
-    // --- 공용 ---
-    //파일목록 스프레드시트, 목차파일 등이 저장될 기본 폴더 ID
-    'PARENT_FOLDER_ID': '1AwU4YgMjPcgW36IIXZl94gsLNtKJgP-6',
-    //파일목록이 저장되는 스프레드시트 ID
-    'DB_SHEET_ID':      '1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o',
-    // 시스템 A 배포 URL
-    'VIEWER_URL':       'https://script.google.com/macros/s/AKfycbwlgZvfs03LJbMX1r0gbQwRUlCZsEYKBBfceEWnPN0FeHfEcDc9vwkFxnOigFdCSNZtyg/exec',   
-
-    // --- 민감 (나중에 값 채우기) ---
-    'GEMINI_KEY':       '',
-    'SUPABASE_URL':     '',
-    'SUPABASE_KEY':     ''
-  }, false);  // false = 기존 다른 속성은 지우지 않고 병합
-  Logger.log('설정 저장 완료. checkSettings()로 확인하세요.');
-}
+//키값 관련은 노션으로 이동. github에 push안되는문제.
