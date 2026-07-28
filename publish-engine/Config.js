@@ -110,4 +110,3 @@ function checkSettings() {
   Logger.log(lines.join('\n'));
 }
 
-//키값 관련은 노션으로 이동. github에 push안되는문제.

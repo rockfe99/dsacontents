@@ -138,3 +138,187 @@ function formatDate_(value) {
   }
   return String(value);
 }
+
+/**
+ * 실시간 설문 - "학생들에게 공개" 버튼에서 호출. 저장·고유키 생성은
+ * 배포엔진(publish-engine/Survey.js)에 위임한다.
+ * @param {string} keyword           강의 키워드
+ * @param {string} questionText
+ * @param {string} questionType      'multiple_choice' | 'short_answer' | 'opinion'
+ * @param {Array<string>|null} options          객관식 보기(그 외 타입은 무시됨)
+ * @param {string} correctAnswersCsv 쉼표로 구분된 정답들(의견형은 무시됨)
+ * @return {Object} { id, access_key, started_at, ... }
+ */
+function createSurvey(keyword, questionText, questionType, options, correctAnswersCsv) {
+  var cleanKeyword = String(keyword || '').trim();
+  var cleanQuestion = String(questionText || '').trim();
+
+  if (!cleanKeyword || !cleanQuestion) {
+    throw new Error('강의 키워드와 질문 내용을 입력하세요.');
+  }
+  if (['multiple_choice', 'short_answer', 'opinion'].indexOf(questionType) === -1) {
+    throw new Error('알 수 없는 문제 유형입니다.');
+  }
+
+  var cleanOptions = null;
+  if (questionType === 'multiple_choice') {
+    cleanOptions = (options || []).map(function (o) { return String(o).trim(); }).filter(function (o) { return o; });
+    if (cleanOptions.length < 2) {
+      throw new Error('객관식은 선택보기를 2개 이상 입력하세요.');
+    }
+  }
+
+  // 의견형은 정답을 입력받지 않고 채점도 하지 않는다.
+  var cleanAnswers = null;
+  if (questionType !== 'opinion') {
+    cleanAnswers = String(correctAnswersCsv || '')
+      .split(',')
+      .map(function (a) { return a.trim(); })
+      .filter(function (a) { return a; });
+    if (cleanAnswers.length === 0) {
+      throw new Error('정답을 최소 1개 입력하세요.');
+    }
+    // 객관식은 텍스트가 아니라 보기 번호(1부터)로 정답을 받는다 - 학생 제출값도 번호라
+    // 텍스트 일치 여부를 따질 필요가 없어지고 오타·표현 차이 문제가 사라진다.
+    if (questionType === 'multiple_choice') {
+      var optionCount = cleanOptions.length;
+      var hasInvalid = cleanAnswers.some(function (a) {
+        var n = Number(a);
+        return !Number.isInteger(n) || n < 1 || n > optionCount;
+      });
+      if (hasInvalid) {
+        throw new Error('정답은 1~' + optionCount + ' 사이의 보기 번호로 입력하세요(여러 개면 쉼표로 구분).');
+      }
+    }
+  }
+
+  return PublishEngine.createSurveyQuestion(cleanKeyword, cleanQuestion, questionType, cleanOptions, cleanAnswers);
+}
+
+/**
+ * 실시간 설문 - "설문종료" 버튼에서 호출. 종료 처리 → 임시답변 집계/채점
+ * (또는 의견형은 callAI_() 요약) → 결과 영구 저장까지 한 번에 수행한다.
+ * 의견형 요약(Gemini)이 실패해도 학생 답변 원문(opinion_raw)은 그대로
+ * 결과에 남기고 finalizeSurveyResult는 항상 호출한다 - 재시도 없이도
+ * 데이터 유실이 생기지 않도록 하기 위함.
+ * @param {number} questionId
+ * @return {Object} 결과(화면 렌더링용) { question_text, question_type,
+ *                    total_responses, correct_count, accuracy_rate,
+ *                    answer_distribution, opinion_summary, opinion_raw }
+ */
+function finishSurvey(questionId) {
+  var q = PublishEngine.endSurveyQuestion(questionId);
+  var answers = PublishEngine.getSurveyTempAnswers(questionId);
+
+  var result = { total_responses: answers.length };
+
+  if (q.question_type === 'opinion') {
+    result.correct_count = null;
+    result.accuracy_rate = null;
+    result.answer_distribution = null;
+    result.opinion_raw = answers;
+    if (answers.length === 0) {
+      result.opinion_summary = null;
+    } else {
+      try {
+        result.opinion_summary = callAI_(buildOpinionPrompt_(answers));
+      } catch (err) {
+        // Gemini 실패 시 요약 없이 원본 답변만 남긴다(원자성 보장 - 재시도 불필요)
+        result.opinion_summary = null;
+      }
+    }
+  } else {
+    var correctSet = {};
+    (q.correct_answers || []).forEach(function (c) { correctSet[normalizeAnswer_(c)] = true; });
+
+    var isMultipleChoice = (q.question_type === 'multiple_choice');
+
+    // 정규화(공백·대소문자 무시) 키로 묶는다. 객관식은 제출값이 보기 번호이므로,
+    // 화면 표시용 라벨은 그 번호에 해당하는 보기 텍스트로 바꿔서 보여준다.
+    var groups = {};
+    answers.forEach(function (a) {
+      var key = normalizeAnswer_(a);
+      if (!key) return;
+      if (!groups[key]) {
+        var label = String(a).trim();
+        if (isMultipleChoice) {
+          var idx = parseInt(label, 10);
+          if (Number.isInteger(idx) && q.options && q.options[idx - 1] != null) {
+            label = idx + '. ' + q.options[idx - 1];
+          }
+        }
+        groups[key] = { count: 0, label: label };
+      }
+      groups[key].count++;
+    });
+
+    var total = answers.length;
+    var correctCount = 0;
+    var distribution = Object.keys(groups).map(function (key) {
+      var g = groups[key];
+      var isCorrect = !!correctSet[key];
+      if (isCorrect) correctCount += g.count;
+      return {
+        label: g.label,
+        count: g.count,
+        ratio: total ? Math.round(g.count / total * 1000) / 10 : 0,
+        is_correct: isCorrect
+      };
+    }).sort(function (a, b) { return b.count - a.count; });
+
+    result.correct_count = correctCount;
+    result.accuracy_rate = total ? Math.round(correctCount / total * 10000) / 100 : 0;
+    result.answer_distribution = distribution;
+    result.opinion_summary = null;
+    result.opinion_raw = null;
+  }
+
+  PublishEngine.finalizeSurveyResult(questionId, result);
+
+  result.question_text = q.question_text;
+  result.question_type = q.question_type;
+  return result;
+}
+
+/** 채점·집계용 정규화: 앞뒤 공백 제거, 연속 공백 하나로, 대소문자 무시. */
+function normalizeAnswer_(s) {
+  return String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/** 의견형 요약 요청 프롬프트를 만든다. */
+function buildOpinionPrompt_(answers) {
+  return '다음은 학생들이 남긴 의견입니다. 핵심 내용을 한국어로 간결하게 요약해 주세요.\n\n' +
+    answers.map(function (a, i) { return (i + 1) + '. ' + a; }).join('\n');
+}
+
+/**
+ * AI 호출 단일 창구(CLAUDE.md 규칙: AI 호출은 반드시 이 함수를 거친다).
+ * 나중에 모델·엔드포인트를 바꾸더라도 이 함수 안만 고치면 된다.
+ * API 키는 자체 스크립트 속성이 아니라 배포엔진에서 가져온다.
+ * @param {string} prompt
+ * @return {string} 응답 텍스트
+ */
+function callAI_(prompt) {
+  var apiKey = PublishEngine.getSecret('GEMINI_KEY');
+  if (!apiKey) throw new Error('GEMINI_KEY가 설정되어 있지 않습니다.');
+
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(apiKey);
+  var res = UrlFetchApp.fetch(url, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    muteHttpExceptions: true
+  });
+
+  if (res.getResponseCode() !== 200) {
+    throw new Error('Gemini API 오류: ' + res.getResponseCode());
+  }
+
+  var data = JSON.parse(res.getContentText());
+  var text = data && data.candidates && data.candidates[0] &&
+    data.candidates[0].content && data.candidates[0].content.parts &&
+    data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+
+  if (!text) throw new Error('Gemini 응답에서 텍스트를 찾을 수 없습니다.');
+  return text.trim();
+}

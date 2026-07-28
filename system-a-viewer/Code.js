@@ -52,3 +52,39 @@ function plainMessage_(message) {
     'text-align:center;color:#495057;font-size:15px;">' + message + '</div>'
   );
 }
+
+/**
+ * 실시간 설문 - 학생이 고유키를 입력했을 때 호출. 진행 중인 문제를 조회한다.
+ * 내부 오류도 "없는 키"와 동일하게 취급해 화면에 노출하지 않는다(뷰어 보안 정책과 동일).
+ * @param {string} accessKey
+ * @return {Object|null} { id, question_text, question_type, options } 또는 없으면 null
+ */
+function getSurveyQuestion(accessKey) {
+  try {
+    return PublishEngine.getSurveyByAccessKey(String(accessKey || '').trim());
+  } catch (err) {
+    // 화면에는 노출하지 않되, 실행 로그에는 원인을 남긴다(진단용).
+    Logger.log('getSurveyQuestion 오류: ' + err);
+    return null;
+  }
+}
+
+/**
+ * 실시간 설문 - 학생 답변 전송.
+ * @param {number} questionId
+ * @param {string} answerText
+ * @return {boolean} 저장 성공 여부(false면 이미 종료된 설문)
+ */
+function submitSurveyAnswer(questionId, answerText) {
+  return PublishEngine.submitSurveyAnswer(questionId, String(answerText || '').trim());
+}
+
+/**
+ * 진단용(임시) - 이 프로젝트에 script.external_request 권한을 승인시키기 위한 함수.
+ * getSurveyQuestion과 달리 try/catch로 감싸지 않아, 편집기에서 직접 실행하면
+ * 권한 부족 예외가 그대로 올라와 "권한 검토" 승인 팝업이 뜬다. 승인 후 이 함수는
+ * 지워도 된다.
+ */
+function authorizeSurveyScopes_TEMP() {
+  return PublishEngine.getSurveyByAccessKey('AUTH-CHECK');
+}

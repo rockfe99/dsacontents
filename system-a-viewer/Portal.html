@@ -15,6 +15,31 @@
       #sidebar { width: 100%; height: 40%; border-right: none; border-bottom: 1px solid #dee2e6; }
       #content-frame { height: 60%; }
     }
+
+    .survey-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4);
+      align-items: center; justify-content: center; z-index: 200; padding: 20px;
+    }
+    .survey-modal-overlay.show { display: flex; }
+    .survey-modal-box {
+      background: #fff; border-radius: 10px; width: 340px; max-width: 100%;
+      box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 22px; font-family: 'Malgun Gothic', sans-serif;
+      box-sizing: border-box;
+    }
+    .survey-modal-box h3 { margin: 0 0 14px; font-size: 16px; color: #212529; }
+    .survey-modal-box input, .survey-modal-box textarea {
+      width: 100%; padding: 9px 10px; border: 1px solid #ced4da; border-radius: 5px;
+      font-size: 13.5px; font-family: inherit; box-sizing: border-box;
+    }
+    .survey-modal-box textarea { resize: vertical; }
+    .survey-modal-box .hint { font-size: 12px; color: #868e96; margin-top: 6px; }
+    .survey-btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .survey-btn {
+      padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: inherit; border: 1px solid #ced4da; background: #fff; color: #495057;
+    }
+    .survey-btn-primary { background: #4285f4; border-color: #4285f4; color: #fff; }
+    .survey-choice-row { display: flex; align-items: center; gap: 6px; font-size: 13.5px; margin: 6px 0; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -30,6 +55,41 @@
     <? } else { ?>
       <div id="content-frame" class="empty">슬라이드를 불러올 수 없습니다.</div>
     <? } ?>
+  </div>
+
+  <!-- 실시간 설문 - 고유키 입력 모달 -->
+  <div class="survey-modal-overlay" id="surveyKeyOverlay">
+    <div class="survey-modal-box">
+      <h3>답변하기</h3>
+      <label style="font-size:12.5px;color:#495057;">강사에게 안내받은 고유키를 입력하세요</label>
+      <input type="text" id="surveyKeyInput" placeholder="예: A1B2C3" maxlength="8" style="margin-top:6px;text-transform:uppercase;">
+      <div class="survey-btn-row">
+        <button class="survey-btn" onclick="closeSurveyKeyModal()">취소</button>
+        <button class="survey-btn survey-btn-primary" id="surveyKeySubmitBtn" onclick="submitSurveyKey()">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 실시간 설문 - 질문/답변 모달 -->
+  <div class="survey-modal-overlay" id="surveyAnswerOverlay">
+    <div class="survey-modal-box">
+      <h3 id="surveyAnswerQuestion"></h3>
+      <div id="surveyAnswerInputArea"></div>
+      <div class="survey-btn-row">
+        <button class="survey-btn" onclick="closeSurveyAnswerModal()">취소</button>
+        <button class="survey-btn survey-btn-primary" id="surveyAnswerSubmitBtn" onclick="submitSurveyAnswer_()">전송</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 실시간 설문 - 안내 모달(없는 키·종료된 설문 등) -->
+  <div class="survey-modal-overlay" id="surveyInfoOverlay">
+    <div class="survey-modal-box">
+      <p id="surveyInfoMessage" style="margin:0 0 4px;font-size:13.5px;color:#212529;"></p>
+      <div class="survey-btn-row">
+        <button class="survey-btn survey-btn-primary" onclick="closeSurveyInfoModal()">확인</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -48,6 +108,117 @@
       var baseUrl = iframe.src.split('#')[0];
       iframe.src = baseUrl + '#slide=id.' + encodeURIComponent(objectId);
     };
+
+    // ===== 실시간 설문 - 답변하기 =====
+    var currentSurveyQuestion = null;
+
+    window.openSurveyKeyModal = function () {
+      document.getElementById('surveyKeyInput').value = '';
+      document.getElementById('surveyKeyOverlay').classList.add('show');
+      document.getElementById('surveyKeyInput').focus();
+    };
+    function closeSurveyKeyModal() {
+      document.getElementById('surveyKeyOverlay').classList.remove('show');
+    }
+
+    function submitSurveyKey() {
+      var key = document.getElementById('surveyKeyInput').value.trim().toUpperCase();
+      if (!key) return;
+      var btn = document.getElementById('surveyKeySubmitBtn');
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(function (question) {
+          btn.disabled = false;
+          closeSurveyKeyModal();
+          if (!question) {
+            showSurveyInfo('답변할 문제가 없습니다.');
+            return;
+          }
+          openSurveyAnswerModal(question);
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          showSurveyInfo('답변할 문제가 없습니다.');
+        })
+        .getSurveyQuestion(key);
+    }
+
+    function openSurveyAnswerModal(question) {
+      currentSurveyQuestion = question;
+      document.getElementById('surveyAnswerQuestion').textContent = question.question_text;
+
+      var area = document.getElementById('surveyAnswerInputArea');
+      area.innerHTML = '';
+
+      if (question.question_type === 'multiple_choice') {
+        // 보기는 1번부터 순서대로 - 제출값도 텍스트가 아니라 이 번호로 보낸다.
+        (question.options || []).forEach(function (opt, i) {
+          var row = document.createElement('label');
+          row.className = 'survey-choice-row';
+          var radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'surveyChoice';
+          radio.value = String(i + 1);
+          row.appendChild(radio);
+          row.appendChild(document.createTextNode((i + 1) + '. ' + opt));
+          area.appendChild(row);
+        });
+      } else if (question.question_type === 'short_answer') {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.id = 'surveyAnswerText';
+        area.appendChild(input);
+      } else {
+        var textarea = document.createElement('textarea');
+        textarea.id = 'surveyAnswerText';
+        textarea.rows = 4;
+        area.appendChild(textarea);
+      }
+
+      document.getElementById('surveyAnswerOverlay').classList.add('show');
+    }
+
+    function closeSurveyAnswerModal() {
+      document.getElementById('surveyAnswerOverlay').classList.remove('show');
+    }
+
+    function submitSurveyAnswer_() {
+      if (!currentSurveyQuestion) return;
+      var answerText = '';
+
+      if (currentSurveyQuestion.question_type === 'multiple_choice') {
+        var checked = document.querySelector('input[name="surveyChoice"]:checked');
+        if (!checked) { alert('보기를 선택하세요.'); return; }
+        answerText = checked.value; // 1, 2, 3, 4 ... (선택한 보기 번호)
+      } else {
+        answerText = document.getElementById('surveyAnswerText').value.trim();
+        if (!answerText) { alert('답변을 입력하세요.'); return; }
+      }
+
+      var btn = document.getElementById('surveyAnswerSubmitBtn');
+      btn.disabled = true;
+      google.script.run
+        .withSuccessHandler(function (ok) {
+          btn.disabled = false;
+          closeSurveyAnswerModal();
+          if (!ok) {
+            showSurveyInfo('답변할 문제가 없습니다.');
+          }
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          showSurveyInfo('답변 전송에 실패했습니다. 다시 시도해 주세요.');
+        })
+        .submitSurveyAnswer(currentSurveyQuestion.id, answerText);
+    }
+
+    function showSurveyInfo(msg) {
+      document.getElementById('surveyInfoMessage').textContent = msg;
+      document.getElementById('surveyInfoOverlay').classList.add('show');
+    }
+    function closeSurveyInfoModal() {
+      document.getElementById('surveyInfoOverlay').classList.remove('show');
+    }
   </script>
 </body>
 </html>

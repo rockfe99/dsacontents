@@ -10,11 +10,345 @@
 
 [실시간 설문]
 이제 강사 대시보드의 "실시간 설문" 기능을 만든다.
-실시간으로 강사가 문제를 내고 학생들이 대답을 한후 채점과정을 거쳐 화면에 결과를 출력하기까지, 즉 이후DB에 저장하기 전까지 임시로 이것들을 보관할 적당한 곳은? CacheService
 
 "실시간 설문"을 누르면 모달이 나타난다. 여기에는 질문 입력란, 문제유형 (객관식/단답형/의견형), 객관식인 경우 선택보기들, 단답형인경우 한줄입력란, 의견형인 경우 여러줄입력란, 정답입력란, 학생들에게 공개 버튼이 있다.
 정답은 여러개인경우 강사가 정답입력란에 쉼표로 구별해 여러개를 넣으면 모두 정답 처리된다.
 학생들에게 공개 버튼을 누르면 영문대문자와 숫자로 이루어진 고유키가 생성되고 새로운 모달에 생성된 고유키, 설문종료버튼, 경과시간이 표시된다.
+이 데이터들은 설문 문제 테이블과 답변 임시 테이블에 저장된다.
+학생들에게 강사가 고유키를 알려준다.
+학생들은 강의 뷰어(시스템A)의 목차영역 상단의 "강의 목차" 문자열 오른쪽의 "답변하기" 버튼을 누르면 모달이 뜨고 거기에 강사가 알려준 고유키를 누르면 다시 질문과답변 모달이 나타난다. 질문에 따라 답을 입력하고 "전송"버튼을 누르면 모달이 닫히면서 답변이 전송된다.
+질문을 공개하고 기다리는 동안 강사 대시보드에는 모달이 떠있고 이 모달은 "설문종료" 외에는 닫히지 않는다. 
+일정시간이 지나고 강사가 "설문종료" 버튼을 누르면 그동안 학생들이 전송한 답변들을 모아서 객관식, 단답형은 채점하여 정답률과 각 제출답안별 통계를, 의견형은 제미나이에게 보내 요약을 만들어 supabase의 postgresql DB로 저장한다. 그리고 화면에는 정답율과 각 답변의 비율을 가로형 막대그래프와 수치로 보여준다.  의견형은 제미나이의 요약을 보여준다. 이 창은 닫으면 다시 볼수 없다. 닫을때 메시지를 표시하고 한번 확인한다. 이 데이터는 각 강의별 자료의 평가를 할때 사용된다.
+학생들이 답변하기를 누르고 고유키를 입력했을때 없는 고유키 이거나 설문종료된 경우는 답변할 문제가 없습니다. 라는 모달창이 나타난다. 
+강사가 문제를 공개하고 설문종료 처리를 하지 않은 문제와 임시테이블의 답변은 다음 문제를 낼때 확인하여 삭제 처리하는 단계를 거친다. 
+이 경우를 제외하고 문제 한건당 결과 한건씩 모두 DB에 남는다.
+테이블 구조와 처리 단계를 설계하라.
+
+
+# 실시간 설문 기능 — DB 설계 문서
+
+> GAS 강사 대시보드 + 강의 뷰어(시스템A) + Supabase PostgreSQL 기반.
+> 강사가 실시간 문제를 내고, 학생이 고유키로 답하고, 종료 시 채점·요약 결과를
+> 강의 키워드와 함께 영구 저장하여 강의별 자료 평가에 사용한다.
+
+---
+
+## 1. 요구사항
+
+### 1-1. 문제 출제 (강사 대시보드)
+
+- "실시간 설문"을 누르면 출제 모달이 뜬다. 구성:
+  - 질문 입력란
+  - 문제유형 선택: **객관식 / 단답형 / 의견형**
+  - 객관식이면 선택보기들, 단답형이면 한 줄 입력란, 의견형이면 여러 줄 입력란
+  - 정답 입력란
+  - "학생들에게 공개" 버튼
+- 정답이 여러 개면 정답 입력란에 **쉼표로 구분**해 넣고, 그중 하나와 일치하면 정답 처리한다.
+- "학생들에게 공개"를 누르면:
+  - **영문 대문자 + 숫자**로 이루어진 고유키가 생성된다.
+  - 이 데이터가 **설문 문제 테이블**에 저장되고, 이후 학생 답변은 **답변 임시 테이블**에 쌓인다.
+  - 새 모달에 **고유키 · 설문종료 버튼 · 경과시간**이 표시된다.
+  - 이 모달은 **"설문종료" 외에는 닫히지 않는다.**
+- 강사가 학생들에게 고유키를 구두로 알려준다.
+
+### 1-2. 답변 제출 (학생 · 강의 뷰어 시스템A)
+
+- 목차 영역 상단 "강의 목차" 오른쪽의 **"답변하기"** 버튼을 누르면 모달이 뜬다.
+- 강사가 알려준 고유키를 입력하면 질문·답변 모달이 나타난다.
+- 유형에 맞게 답을 입력하고 "전송"을 누르면 모달이 닫히며 답변이 전송된다.
+- 입력한 고유키가 **없는 키이거나 이미 종료된 설문**이면 "답변할 문제가 없습니다." 모달을 띄운다.
+
+### 1-3. 설문 종료 · 결과 (강사 대시보드)
+
+- "설문종료"를 누르면 그동안 모인 답변을 처리한다.
+  - **객관식 · 단답형**: 채점하여 정답률과 제출답안별 통계를 산출.
+  - **의견형**: 답변을 Gemini에 보내 요약 생성.
+- 결과를 **Supabase PostgreSQL에 강의 키워드와 함께 영구 저장**한다.
+- 화면 표시:
+  - 객관식 · 단답형: 정답률과 각 답변 비율을 **가로형 막대그래프 + 수치**로.
+  - 의견형: Gemini 요약을 표시.
+  - 이 창은 **닫으면 다시 볼 수 없다.** 닫을 때 메시지를 띄우고 **한 번 확인**한다.
+  - (데이터 자체는 결과 테이블에 남아 있으므로, 강의 평가 시 재조회 가능.)
+- **정상 종료된 문제는 예외 없이 결과 1건이 DB에 남는다** (문제 1건 → 결과 1건).
+
+### 1-4. 정리(cleanup) 규칙
+
+- 강사가 종료하지 않고 방치한 문제와 그 임시답변은 정리 대상이다.
+- **동시에 여러 강사가 각자 설문을 진행할 수 있다.** 진행 중인 남의 설문은 지우면 안 된다.
+- DB를 상시 감시(polling)하지 않는다. 자주 있는 일이 아니므로 별도 스케줄러를 두지 않는다.
+- 정리 시점·조건: **새 문제가 저장될 때, 그 시점 기준 하루(24시간) 이상 지난 미완료분만 삭제한다.**
+
+### 1-5. 검색 축
+
+- 강사 단위로 구분하지 않는다. 평가·검색은 **강의 키워드(`lecture_keyword`) 기준**이다.
+
+---
+
+## 2. 설계 원칙 (요구사항이 도출하는 구조)
+
+1. **라이브 데이터도 Supabase에 둔다.** 강사 대시보드와 학생 뷰어는 서로 다른 GAS 배포라 CacheService를 공유할 수 없다. 진행 중 문제·답변은 공유 저장소인 Supabase에 둔다.
+2. **작업용 테이블과 영구 테이블을 분리한다.** 문제·임시답변은 종료 시 소멸하는 작업용, 결과만 영구.
+3. **"작업 테이블에 남은 행 = 항상 미완료분"이라는 불변식.** 정상 종료분은 종료 처리에서 결과로 옮긴 뒤 즉시 삭제된다. 이 불변식 덕분에 정리 시 조건을 복잡하게 따질 필요가 없다.
+4. **정리는 시간 조건만으로 동시성 해결.** 진행 중인 남의 설문은 `started_at`이 최근이므로, "24시간 이상 지난 것"만 지우면 동시 진행 설문을 절대 건드리지 않는다. `instructor_id`는 불필요.
+5. **보안.** 학생 뷰어는 DB를 직접 만지지 않고, GAS 서버 측이 service_role 키로 모든 접근을 중개한다.
+
+---
+
+## 3. 테이블 생성 (SQL)
+
+```sql
+-- ============================================================
+-- 1. 설문 문제 테이블 (라이브·작업용)
+--    "학생에게 공개" 시 1행 INSERT.
+--    남아 있는 행 = 항상 미완료분 (정상 종료분은 종료 처리 시 삭제됨)
+-- ============================================================
+create table survey_questions (
+  id              bigserial primary key,
+  access_key      varchar(8)  not null,       -- 학생 배포용 고유키 (영대문자+숫자)
+  lecture_keyword text        not null,       -- 강의 키워드 (평가·검색 축)
+  question_text   text        not null,       -- 질문 내용
+  question_type   varchar(20) not null
+                  check (question_type in ('multiple_choice','short_answer','opinion')),
+  options         jsonb,                       -- 객관식 보기 배열, 그 외 null
+  correct_answers text[],                      -- 정답들(객관식/단답), 의견형 null
+  status          varchar(20) not null default 'active'
+                  check (status in ('active','ended')),
+  started_at      timestamptz not null default now(),  -- 경과시간 기준 + 방치 판정 기준
+  ended_at        timestamptz
+);
+
+-- 활성 문제에 한해 고유키 유일
+-- (동시에 여러 설문이 떠 있어도 활성 키끼리는 충돌 없음)
+create unique index uq_active_key
+  on survey_questions (access_key) where status = 'active';
+
+
+-- ============================================================
+-- 2. 답변 임시 테이블 (라이브·임시)
+--    학생 전송 답변 누적. 문제 삭제 시 cascade로 함께 소멸.
+-- ============================================================
+create table survey_temp_answers (
+  id            bigserial primary key,
+  question_id   bigint      not null references survey_questions(id) on delete cascade,
+  student_token text,                     -- 익명 브라우저 토큰(중복제출 방지, 선택)
+  answer_text   text        not null,
+  submitted_at  timestamptz not null default now()
+);
+
+create index idx_ta_question on survey_temp_answers (question_id);
+-- 한 학생 1회 제출 (토큰을 쓰는 경우)
+create unique index uq_one_answer
+  on survey_temp_answers (question_id, student_token) where student_token is not null;
+
+
+-- ============================================================
+-- 3. 설문 결과 테이블 (영구) — 문제 1건당 결과 1건
+--    정상 종료된 설문만 남는다. 강의별 자료 평가에 사용.
+-- ============================================================
+create table survey_results (
+  id                  bigserial primary key,
+  lecture_keyword     text        not null,      -- 강의 평가 연결 키
+  question_text       text        not null,
+  question_type       varchar(20) not null,
+  options             jsonb,                      -- 객관식 보기 스냅샷
+  correct_answers     text[],
+  total_responses     int         not null default 0,
+
+  -- 객관식·단답형 채점 결과
+  correct_count       int,                        -- 의견형 null
+  accuracy_rate       numeric(5,2),               -- 정답률 % (의견형 null)
+  answer_distribution jsonb,                       -- 제출답안별 통계(막대그래프용), 의견형 null
+
+  -- 의견형 결과
+  opinion_summary     text,                        -- Gemini 요약 (의견형만)
+  opinion_raw         jsonb,                        -- 원본 의견 목록(평가 근거 보관, 선택)
+
+  saved_at            timestamptz not null default now()
+);
+
+create index idx_r_keyword on survey_results (lecture_keyword);
+```
+
+### 3-1. `answer_distribution` 형태 (가로 막대그래프에 그대로 대응)
+
+비율(`ratio`)을 미리 계산해 넣어두면 평가 시 재계산 없이 바로 그린다.
+
+```json
+[
+  {"label": "파이썬", "count": 12, "ratio": 60.0, "is_correct": true},
+  {"label": "자바",  "count": 5,  "ratio": 25.0, "is_correct": false},
+  {"label": "C++",   "count": 3,  "ratio": 15.0, "is_correct": false}
+]
+```
+
+### 3-2. 유형별 컬럼 사용 요약
+
+| 컬럼 | 객관식 | 단답형 | 의견형 |
+|---|---|---|---|
+| `options` | 보기 배열 | null | null |
+| `correct_answers` | 정답 배열 | 정답 배열 | null |
+| `correct_count` / `accuracy_rate` | 값 | 값 | null |
+| `answer_distribution` | 값 | 값 | null |
+| `opinion_summary` | null | null | Gemini 요약 |
+| `opinion_raw` | null | null | 원본 의견(선택) |
+
+---
+
+## 4. 처리 단계
+
+### 단계 0. 새 문제 공개 직전 — 하루 이상 지난 미완료분만 삭제
+
+```sql
+delete from survey_questions
+where started_at < now() - interval '1 day';
+-- 24시간 넘은 미완료분만 청소. 진행 중인 남의 설문(최근 started_at)은 보존.
+-- 임시답변은 cascade로 함께 소멸.
+```
+
+동시 진행 강사 보호(시간 조건) · 무감시(공개 이벤트에 얹음) · 찌꺼기 청소를 한 번에 만족.
+
+### 단계 1. 문제 공개 (고유키 생성 + INSERT)
+
+GAS에서 영대문자+숫자 6자리 키 생성, 유니크 충돌 시 재시도.
+
+```sql
+insert into survey_questions
+  (access_key, lecture_keyword, question_text, question_type, options, correct_answers)
+values (:key, :kw, :q, :type, :options, :answers)
+returning id, access_key, started_at;
+```
+
+반환된 `started_at`으로 대시보드 모달이 경과시간을 계산·표시.
+모달은 "설문종료" 외에는 닫히지 않으며, 열려 있는 동안 문제는 `active` 유지.
+
+### 단계 2. 학생 고유키 입력 → 문제 조회
+
+```sql
+select id, question_text, question_type, options
+from survey_questions
+where access_key = :key and status = 'active';
+-- 0행 → "답변할 문제가 없습니다." (없는 키/종료 키를 구분할 필요 없음)
+```
+
+### 단계 3. 학생 답변 전송 (활성일 때만 접수)
+
+```sql
+insert into survey_temp_answers (question_id, student_token, answer_text)
+select :qid, :token, :ans
+where exists (
+  select 1 from survey_questions where id = :qid and status = 'active'
+);
+-- 0건 INSERT → 이미 종료됨, 클라이언트에 "종료된 설문" 안내
+```
+
+### 단계 4. 설문종료 — 접수 중단
+
+```sql
+update survey_questions set status='ended', ended_at=now() where id=:qid;
+-- 이 순간부터 단계 2 조회와 단계 3 제출이 모두 막힘.
+```
+
+### 단계 5. 집계 · 채점 · 요약 (GAS)
+
+- **객관식 · 단답형**: 제출답안별 카운트 집계 후, 각 답이 `correct_answers`에 포함되는지 **정규화 비교**(대소문자 · 앞뒤 공백 제거)로 판정 → `correct_count`, `accuracy_rate`, `answer_distribution` 생성.
+
+  ```sql
+  select answer_text, count(*) as cnt
+  from survey_temp_answers where question_id = :qid
+  group by answer_text order by cnt desc;
+  ```
+
+- **의견형**: 답변 텍스트를 모아 Gemini에 요약 요청 → `opinion_summary`. 채점 컬럼은 null.
+
+### 단계 6~7. 결과 저장 + 작업 테이블 정리 (한 트랜잭션 = RPC `finalize_survey`)
+
+```sql
+insert into survey_results (...) values (...);
+delete from survey_questions where id = :qid;   -- 임시답변 cascade 삭제
+```
+
+두 문장을 반드시 한 트랜잭션으로 묶는다. 이래야 "결과는 저장됐는데 문제가 안 지워짐" 같은
+어긋난 상태가 없고, **"남은 행 = 미완료분" 불변식**이 지켜져 단계 0의 시간 조건 삭제가 항상 안전하다.
+
+### 단계 8. 화면 표시 (일회성 모달)
+
+- 객관식 · 단답형: 정답률과 답안별 비율을 가로 막대그래프 + 수치로.
+- 의견형: Gemini 요약 표시.
+- 닫을 때 확인 메시지 1회. 데이터는 이미 `survey_results`에 있으므로 "다시 못 봄"은 모달의 일회성일 뿐,
+  강의 평가 시 `lecture_keyword`로 재조회한다.
+
+---
+
+## 5. 권장 실행 흐름 (원자성)
+
+의견형 Gemini 호출은 외부 API라 GAS 안에서 먼저 끝내야 한다. 따라서:
+
+1. GAS: 단계 4(종료) → 단계 5(집계, 필요 시 Gemini 요약)
+2. GAS: 계산 완료된 결과 JSON으로 Supabase RPC `finalize_survey(qid, result_json)` 1회 호출
+3. 함수 내부에서 `insert survey_results` + `delete survey_questions`를 한 트랜잭션으로 실행
+
+---
+
+## 6. 트레이드오프 (알고 넘어갈 점)
+
+- **방치분은 최대 24시간 살아 있다.** 종료 없이 창을 닫은 설문은 하루 안에는 `active`로 남는다.
+  그동안 옛 고유키를 아는 학생이 답을 더 넣을 수 있고, 이 답들은 어디에도 집계되지 못한 채
+  다음 정리(단계 0) 때 함께 삭제된다. 실사용상 드문 시나리오이며, 무감시의 대가로 합리적이다.
+- **잔존 시간을 줄이려면** 임계값을 몇 시간으로 낮추거나(단, 하루 넘게 도는 설문이 없다는 전제),
+  대시보드 모달 강제 종료 시 `beforeunload`로 종료 신호를 보조로 쏘는 방법이 있다(브라우저 특성상 100% 보장은 아님).
+- **단답형 채점의 한계**: 정규화는 대소문자·공백까지만 흡수한다. 표현 차이(`3.14` vs `삼점일사`)까지
+  정답 인정하려면 Gemini를 단답 채점 보정에 활용하는 확장을 둘 수 있다(이번 범위 밖).
+- **무료 티어**: 작업 테이블은 항상 소수 행만 유지되므로 Supabase 500MB에 부담 없음.
+
+---
+
+## 7. 구현 체크리스트
+
+- [ ] Supabase에 위 3개 테이블 + 인덱스 생성
+- [ ] `finalize_survey` plpgsql 함수 작성 (결과 INSERT + 문제 DELETE 원자화)
+- [ ] GAS(대시보드): 출제 모달, 고유키 생성·충돌 재시도, 공개 시 단계 0 정리 + 단계 1 INSERT
+- [ ] GAS(대시보드): 진행 모달(고유키·경과시간·설문종료), 종료 시 단계 4~8
+- [ ] GAS(뷰어 시스템A): "답변하기" 모달, 고유키 조회(단계 2), 답변 전송(단계 3)
+- [ ] Gemini 연동: 의견형 요약 (기존 API 키 재사용)
+- [ ] 결과 모달: 가로 막대그래프 + 수치 / 의견 요약, 닫기 확인 1회
+- [ ] 강의 평가 화면에서 `survey_results`를 `lecture_keyword`로 조회·활용
+
+
+-- 
+1. 원자성 공백 (중요)
+-> 의견형이더라도 강사문제생성후 공개 -> DB에 저장 -> 그이후 학생들이 답안을 제출하고 있음. 이건 임시 db에 저장 -> 설문종료를 누르면 의견형인 경우 먼저 제미나이에게 요청보내 요약정보를 받음 -> 그 후에 임시삭제와 결과저장이므로 제미나이 응답에 시간이 걸려도 문제가 없을것 같은데?
+
+2. 중복제출방지 
+-> 이건 하지않는다.
+
+3. callAI_() 추상화 계층 누락
+-> 이전에 했던 설계대로 가자. AI 호출은 반드시 callAI_()를 거친다.
+
+4. RLS 미언급 (경미) -> 해결책을 제시하라.
+
+5. "정답입력란" 해석이 문서에 안 밝혀짐
+-> 강사가 문제를 낼때 의견형인경우는 정답을 입력하지 않고 채점도 하지 않는다.
+
+---
+1. 원자성 공백 — 지연은 문제 없음, "실패"가 문제
+-> 의견성 질문의 요약에 제미나이가 실패하면 요약결과가 아니라 학생들의 모든 답변(제미나이에게 보냈던)을 db에 그대로 저장하는 것으로 한다.
+
+---
+이 설계로 구현을 하라.
+그리고 DB쪽에 생성한 것들을 현재 프로젝트의 가장 상단 경로에 DB구조.sql 문서를 만들어 sql구문과 주석을 저장하라.
+
+---
+실시간 설문 출제에서 객관식 문제의 경우 선택보기를 번호로 처리하라. 학생들 제출 답안도 번호로 처리. 앞에서부터 1,2,3,4 순서로.
+그리고 설문등록시 오류가 난다.
+---
+오류내용은 이미지와 같다. 그리고 설문 출제모달에서도 보기 앞에 번호를 표시하라.
+
+
+
+
+[나중에 추가]
+강의별로 단축키 생성
+
 
 
 

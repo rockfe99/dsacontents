@@ -11,10 +11,19 @@
   .toc-idx { font-weight: bold; color: #4285f4; margin-right: 12px; min-width: 20px; text-align: center; font-size: 13px; }
   .toc-txt { font-size: 13px; color: #495057; font-weight: 500; line-height: 1.4; word-break: break-all; }
   #toc-empty { padding: 20px; color: #868e96; font-size: 13px; }
+  .toc-title-row { display: flex; align-items: center; justify-content: space-between; }
+  .answer-btn {
+    font-size: 12px; padding: 5px 10px; border: 1px solid #4285f4; color: #4285f4;
+    background: #fff; border-radius: 5px; cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .answer-btn:hover { background: #e8f0fe; }
 </style>
 
 <div class="toc-header">
-  <h3>강의 목차</h3>
+  <div class="toc-title-row">
+    <h3>강의 목차</h3>
+    <button class="answer-btn" onclick="openSurveyKeyModal()">답변하기</button>
+  </div>
   <p>슬라이드 제목을 클릭하면 이동합니다.</p>
   <input type="text" id="toc-search" class="search-box" placeholder="목차 검색..." oninput="searchMenu()">
 </div>
