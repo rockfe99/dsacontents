@@ -53,26 +53,27 @@ function getLectureList() {
     throw new Error('배포엔진 설정에 DB_SHEET_ID가 없습니다. 배포엔진의 스크립트 속성을 확인하세요.');
   }
 
-  const sheet = SpreadsheetApp.openById(sheetId).getSheets()[0];
+  // 시트 순서가 바뀌어도 안전하도록 이름("강의목록")으로 찾는다
+  const sheet = SpreadsheetApp.openById(sheetId).getSheetByName('강의목록');
+  if (!sheet) {
+    throw new Error('DB 스프레드시트에 "강의목록" 시트가 없습니다. 시트 이름을 확인하세요.');
+  }
   const values = sheet.getDataRange().getValues();
   if (values.length < 2) return [];
 
-  const header = values[0].map(function (h) { return String(h).trim(); });
-  const idxKeyword = header.indexOf('키워드');
-  const idxTitle   = header.indexOf('강의제목');
-  const idxUrl     = header.indexOf('게시URL');
-  const idxUpdated = header.indexOf('최종수정');
+  // 헤더 이름이 문서와 달라도(오타·변경) 배포엔진이 정해진 열 번호로 대체해줌
+  const cols = PublishEngine.getDbColumnIndexes(values[0]);
 
   const rows = values.slice(1);
   return rows
-    .filter(function (r) { return r[idxKeyword]; })
+    .filter(function (r) { return r[cols.keyword]; })
     .map(function (r) {
-      const keyword = String(r[idxKeyword]).trim();
+      const keyword = String(r[cols.keyword]).trim();
       return {
         keyword: keyword,
-        title: idxTitle >= 0 ? String(r[idxTitle]).trim() : '',
-        sourceUrl: idxUrl >= 0 ? String(r[idxUrl]).trim() : '',
-        updated: formatDate_(idxUpdated >= 0 ? r[idxUpdated] : ''),
+        title: String(r[cols.title] || '').trim(),
+        sourceUrl: String(r[cols.sourceUrl] || '').trim(),
+        updated: formatDate_(r[cols.updated]),
         viewerUrl: viewerBase ? (viewerBase + '?k=' + encodeURIComponent(keyword)) : ''
       };
     });

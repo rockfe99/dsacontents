@@ -67,6 +67,18 @@ function publishLecture(url, keyword, title, tocMethod) {
   };
 }
 
+/** DB 스프레드시트에서 강의 목록 시트의 이름. 시트 순서가 바뀌어도 안전하게 이름으로 찾는다. */
+const DB_SHEET_NAME_ = '강의목록';
+
+/** dbSheetId 스프레드시트에서 DB_SHEET_NAME_ 시트를 이름으로 찾아 반환한다. */
+function getDbSheet_(dbSheetId) {
+  const sheet = SpreadsheetApp.openById(dbSheetId).getSheetByName(DB_SHEET_NAME_);
+  if (!sheet) {
+    throw new Error('DB 스프레드시트에 "' + DB_SHEET_NAME_ + '" 시트가 없습니다. 시트 이름을 확인하세요.');
+  }
+  return sheet;
+}
+
 /**
  * 키워드가 DB 스프레드시트에 이미 등록되어 있는지 확인한다.
  * 시스템 B가 "새 강의 추가" 시 중복 등록을 막는 데 사용(라이브러리 공개 함수).
@@ -75,16 +87,15 @@ function publishLecture(url, keyword, title, tocMethod) {
  */
 function lectureExists(keyword) {
   const config = getConfig();
-  const sheet = SpreadsheetApp.openById(config.dbSheetId).getSheets()[0];
+  const sheet = getDbSheet_(config.dbSheetId);
   const values = sheet.getDataRange().getValues();
   if (values.length < 2) return false;
 
-  const header = values[0].map(function (h) { return String(h).trim(); });
-  const idxKeyword = header.indexOf('키워드');
+  const cols = getDbColumnIndexes(values[0]);
   const target = String(keyword).trim();
 
   for (let r = 1; r < values.length; r++) {
-    if (String(values[r][idxKeyword]).trim() === target) return true;
+    if (String(values[r][cols.keyword]).trim() === target) return true;
   }
   return false;
 }
@@ -92,8 +103,11 @@ function lectureExists(keyword) {
 /**
  * 배포를 내린다(슬라이드 파일 자체는 삭제하지 않음). 시스템 B "배포 수정" 모달의
  * [삭제] 버튼에서 호출(라이브러리 공개 함수).
- * 1) 슬라이드 공유 범위를 "제한됨(PRIVATE)"으로 되돌림 - 공유 드라이브 멤버는
- *    기존 권한대로 계속 열람 가능, 링크 공유로 열람하던 외부/일반 사용자는 차단됨.
+ * 1) 같은 슬라이드ID를 쓰는 다른 키워드가 없을 때만 슬라이드 공유 범위를
+ *    "제한됨(PRIVATE)"으로 되돌림 - 공유 드라이브 멤버는 기존 권한대로 계속
+ *    열람 가능, 링크 공유로 열람하던 외부/일반 사용자는 차단됨. 같은 슬라이드를
+ *    다른 키워드가 여전히 참조 중이면 그 키워드의 뷰어가 깨지지 않도록 공유
+ *    범위를 그대로 둔다.
  * 2) 목차데이터 폴더의 키워드.json을 휴지통으로 이동.
  * 3) DB 스프레드시트에서 해당 키워드 행을 삭제(키워드 재사용 가능해짐).
  * @param {string} keyword
@@ -103,22 +117,20 @@ function unpublishLecture(keyword) {
   const config = getConfig();
   const target = String(keyword).trim();
 
-  const sheet = SpreadsheetApp.openById(config.dbSheetId).getSheets()[0];
+  const sheet = getDbSheet_(config.dbSheetId);
   const values = sheet.getDataRange().getValues();
   if (values.length < 2) {
     throw new Error('등록되지 않은 키워드입니다: ' + target);
   }
 
-  const header = values[0].map(function (h) { return String(h).trim(); });
-  const idxKeyword = header.indexOf('키워드');
-  const idxSlideId = header.indexOf('슬라이드ID');
+  const cols = getDbColumnIndexes(values[0]);
 
   let rowIndex = -1;
   let slideId = '';
   for (let r = 1; r < values.length; r++) {
-    if (String(values[r][idxKeyword]).trim() === target) {
+    if (String(values[r][cols.keyword]).trim() === target) {
       rowIndex = r + 1; // 시트 상 1-based 행 번호
-      slideId = String(values[r][idxSlideId]).trim();
+      slideId = String(values[r][cols.slideId]).trim();
       break;
     }
   }
@@ -126,7 +138,14 @@ function unpublishLecture(keyword) {
     throw new Error('등록되지 않은 키워드입니다: ' + target);
   }
 
-  if (slideId) {
+  // 삭제하려는 행을 제외하고, 같은 슬라이드ID를 쓰는 다른 키워드가 남아있는지 확인
+  const sharedByOtherKeyword = slideId && values.some(function (r, i) {
+    return i > 0
+      && (i + 1) !== rowIndex
+      && String(r[cols.slideId]).trim() === slideId;
+  });
+
+  if (slideId && !sharedByOtherKeyword) {
     DriveApp.getFileById(slideId)
       .setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
   }
@@ -167,17 +186,14 @@ function updateLectureTitle(keyword, title) {
     toc: existing.toc
   });
 
-  const sheet = SpreadsheetApp.openById(config.dbSheetId).getSheets()[0];
+  const sheet = getDbSheet_(config.dbSheetId);
   const values = sheet.getDataRange().getValues();
-  const header = values[0].map(function (h) { return String(h).trim(); });
-  const idxKeyword = header.indexOf('키워드');
-  const idxTitle = header.indexOf('강의제목');
-  const idxUpdated = header.indexOf('최종수정');
+  const cols = getDbColumnIndexes(values[0]);
 
   for (let r = 1; r < values.length; r++) {
-    if (String(values[r][idxKeyword]).trim() === target) {
-      sheet.getRange(r + 1, idxTitle + 1).setValue(title);
-      sheet.getRange(r + 1, idxUpdated + 1).setValue(
+    if (String(values[r][cols.keyword]).trim() === target) {
+      sheet.getRange(r + 1, cols.title + 1).setValue(title);
+      sheet.getRange(r + 1, cols.updated + 1).setValue(
         Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm')
       );
       break;
@@ -205,6 +221,32 @@ function getTocData(keyword) {
   const files = tocFolder.getFilesByName(String(keyword).trim() + '.json');
   if (!files.hasNext()) return null;
   return JSON.parse(files.next().getBlob().getDataAsString());
+}
+
+/**
+ * DB 시트 헤더(1행) 배열에서 컬럼 인덱스를 이름으로 찾는다. 헤더 문자열이
+ * 잘못됐거나(오타·변경) 못 찾을 경우, 파일 구조(열 순서)는 항상 같다는 전제하에
+ * 정해진 열 번호로 대체한다: A=키워드, B=강의제목, C=슬라이드ID, D=게시URL,
+ * E=목차JSON, F=최종수정. 시스템 B도 이 함수로 컬럼 위치를 가져온다(공개 함수).
+ * @param {Array<string>} headerRow  시트 1행 값 배열
+ * @return {Object} { keyword, title, slideId, sourceUrl, tocJson, updated } (전부 0-based 인덱스)
+ */
+function getDbColumnIndexes(headerRow) {
+  const header = (headerRow || []).map(function (h) { return String(h).trim(); });
+
+  function resolve(name, fallbackIndex) {
+    const idx = header.indexOf(name);
+    return idx >= 0 ? idx : fallbackIndex;
+  }
+
+  return {
+    keyword:   resolve('키워드', 0),
+    title:     resolve('강의제목', 1),
+    slideId:   resolve('슬라이드ID', 2),
+    sourceUrl: resolve('게시URL', 3),
+    tocJson:   resolve('목차JSON', 4),
+    updated:   resolve('최종수정', 5)
+  };
 }
 
 /** 기본 폴더 아래 "목차데이터" 폴더를 이름으로 찾고, 없으면 생성해 반환한다. */
@@ -236,7 +278,7 @@ function saveTocJson_(folder, keyword, data) {
  * (셀에 큰 JSON을 통째로 넣지 않기 위함).
  */
 function writeDbRecord_(dbSheetId, keyword, title, slideId, sourceUrl, tocFileUrl, updatedDate) {
-  const sheet = SpreadsheetApp.openById(dbSheetId).getSheets()[0];
+  const sheet = getDbSheet_(dbSheetId);
   const header = ['키워드', '강의제목', '슬라이드ID', '게시URL', '목차JSON', '최종수정'];
 
   if (sheet.getLastRow() === 0) {
@@ -244,14 +286,13 @@ function writeDbRecord_(dbSheetId, keyword, title, slideId, sourceUrl, tocFileUr
   }
 
   const values = sheet.getDataRange().getValues();
-  const headerRow = values[0].map(function (h) { return String(h).trim(); });
-  const idxKeyword = headerRow.indexOf('키워드');
+  const cols = getDbColumnIndexes(values[0]);
 
   const updatedText = Utilities.formatDate(updatedDate, 'Asia/Seoul', 'yyyy-MM-dd HH:mm');
   const rowData = [keyword, title, slideId, sourceUrl, tocFileUrl, updatedText];
 
   for (let r = 1; r < values.length; r++) {
-    if (String(values[r][idxKeyword]).trim() === keyword) {
+    if (String(values[r][cols.keyword]).trim() === keyword) {
       sheet.getRange(r + 1, 1, 1, rowData.length).setValues([rowData]);
       return;
     }

@@ -96,6 +96,10 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 - 키워드가 고유 키. 배포 시 같은 키워드 행이 있으면 갱신, 없으면 추가.
 - `목차JSON` 컬럼은 JSON 원문을 셀에 넣지 않고, 목차데이터 폴더에 저장된
   `키워드.json` 파일의 Drive 링크만 기록한다(`publish-engine/Publish.js` 구현).
+- **시트는 위치(첫 번째 탭)가 아니라 이름 `"강의목록"`으로 찾는다** — 시트 순서가
+  바뀌어도 안전하도록 `getDbSheet_(dbSheetId)`(`publish-engine/Publish.js`)가
+  `getSheetByName('강의목록')`으로 조회하고, 없으면 에러를 던진다. 시스템 B의
+  `getLectureList()`도 같은 방식.
 - **1행(헤더) 실제 컬럼 구성 — 코드에서 컬럼을 찾을 때 반드시 이 헤더명 그대로 사용:**
 
 | 열 | 헤더명 | 내용 |
@@ -106,6 +110,12 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 | D | 게시URL | 강사가 입력한 슬라이드 편집 URL(원본) |
 | E | 목차JSON | 목차데이터 폴더의 `키워드.json` Drive 링크 |
 | F | 최종수정 | 마지막 배포/수정 시각 |
+
+- **헤더 문자열이 위 표와 달라도(오타·변경) 안전하게 동작한다**: 열 순서(A~F)는
+  고정이라는 전제하에, `getDbColumnIndexes(headerRow)`(`publish-engine/Publish.js`
+  공개 함수)가 이름으로 먼저 찾고 못 찾으면 정해진 열 번호로 대체한다. 시스템 B의
+  `getLectureList()`도 이 함수를 그대로 호출해 컬럼 위치를 가져온다 — DB 시트
+  관련 코드를 새로 짤 때는 `header.indexOf(...)`를 직접 쓰지 말고 이 함수를 통할 것.
 
 ---
 
@@ -195,7 +205,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 ```
 dsacontents/
 ├── publish-engine/        (게시엔진 - 생성됨, 설정 허브 완성)
-├── system-a-viewer/       (시스템 A - 예정)
+├── system-a-viewer/       (시스템 A - 생성됨, 배포 완료)
 ├── system-b-dashboard/    (시스템 B - 생성됨, 기본 골격 완성)
 ├── system-c-excel/        (시스템 C - 예정)
 ├── docs/                  (문서)
@@ -210,7 +220,7 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
 
 ---
 
-## 진행 상황 (2026-07-27 기준)
+## 진행 상황 (2026-07-28 기준)
 
 ### publish-engine (게시엔진)
 - `Config.js`가 **중앙 설정 허브**로 완성됨. 스크립트 속성에 공용 키
@@ -218,19 +228,49 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   (`GEMINI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`)를 등록해두면, 다른 프로젝트는
   라이브러리로 붙여서 `PublishEngine.getConfig()` / `getPublicConfig()` /
   `getSetting(name)` / `getSecret(name)`으로 가져다 쓴다.
-  - ⚠️ `VIEWER_URL`은 아직 빈 값(시스템 A 미배포). 시스템 A 배포 후
-    반드시 `setAllProperties()` 또는 스크립트 속성 화면에서 채울 것.
-- `SlideParser.js`: `extractSlideId(url)`, `extractSlideToc(slideId)` (밑줄 없는
-  이름 — 라이브러리 공개 함수라 그대로 유지).
-- `Publish.js`: **`publishLecture(url, keyword, title)`** 완성 — 배포 전체 흐름
-  (공유 설정 → 목차 추출 → `키워드.json` 저장 → DB 기록)을 이 함수 하나로 처리.
-  같은 키워드로 다시 호출하면 그대로 "배포 수정"이 됨(DB 행 갱신). 내부 헬퍼
-  `getOrCreateTocFolder_`, `saveTocJson_`, `writeDbRecord_`는 비공개(밑줄).
-  **`lectureExists(keyword)`** 추가(공개 함수) — 시스템 B가 "새 강의 추가" 시
-  중복 키워드 등록을 막는 데 사용.
-- `Test.js`: `testStep1()`(1단계), `testPublish()`(2단계, `publishLecture` 검증용)
-  — 편집기에서 직접 실행해서 확인하는 함수들. **`testPublish()`는 아직 편집기에서
-  실행해 검증 안 됨** — 다음 세션에서 가장 먼저 할 일.
+  - `VIEWER_URL`은 시스템 A 배포 후 채워짐(아래 참고) — 개발 단계 방침대로
+    `Config.js`의 `setAllProperties()` 소스에 실제 값을 넣고 실행하는 방식 사용 중.
+- `SlideParser.js`:
+  - `extractSlideId(url)` 그대로.
+  - `extractSlideToc(slideId, method)` — `method`로 목차 추출 방식을 고른다.
+    `'title'`(기본값, 제목 플레이스홀더 TITLE/CENTERED_TITLE만 사용, 대체 없음)
+    또는 `'firstText'`(플레이스홀더 구분 없이 슬라이드 내 첫 텍스트 도형 사용).
+    각 항목에 `objectId`(`slide.getObjectId()`)도 포함 — 뷰어에서 목차 클릭 시
+    해당 슬라이드로 점프하는 데 씀. **제목(또는 첫 텍스트)을 못 찾은 슬라이드는
+    목차 배열에서 아예 제외**되고, 남은 항목의 `index`는 원래 슬라이드 위치를
+    그대로 유지(재번호 없음 — 뷰어에 번호가 건너뛰며 보임).
+- `Publish.js`:
+  - **`publishLecture(url, keyword, title, tocMethod)`** — 배포 전체 흐름(PPT가
+    아닌 진짜 구글 슬라이드인지 mimeType 확인 → 공유 설정 → 목차 추출 → 
+    `키워드.json` 저장 → DB 기록). PPT를 "슬라이드로 저장" 안 하고 그냥 연
+    URL을 넣으면 원인과 해결법을 안내하는 에러를 던짐(`file.getMimeType() !==
+    MimeType.GOOGLE_SLIDES` 체크). 같은 키워드로 다시 호출하면 "배포 수정".
+  - **`updateLectureTitle(keyword, title)`** — 슬라이드 URL 없이 **제목만** 갱신하는
+    가벼운 경로. 기존 슬라이드ID·목차는 그대로 두고(공유 재설정도, 목차 재추출도
+    안 함), 목차데이터의 `키워드.json`과 DB 시트의 제목·최종수정만 바꾼다. 시스템
+    B "배포 수정" 모달에서 URL 칸을 비워두고 제출하면 이 경로를 탄다.
+  - **`unpublishLecture(keyword)`** — 배포를 내린다(슬라이드 파일 자체는 안 지움).
+    슬라이드 공유를 `PRIVATE`(공유 드라이브 멤버만)로 되돌리고, 목차데이터의
+    `키워드.json`은 휴지통 이동, DB 행은 삭제(키워드 재사용 가능해짐). 시스템 B
+    "배포 수정" 모달의 [배포 삭제] 버튼에서 호출. **버그 수정**: 같은 슬라이드를
+    다른 키워드가 여전히 참조 중이면(같은 슬라이드ID로 여러 키워드 등록된 경우)
+    슬라이드 공유는 건드리지 않고 목차 json 삭제 + DB 행 삭제만 함 — 원래는
+    무조건 `PRIVATE`로 되돌려서 같은 슬라이드를 쓰는 다른 키워드의 뷰어까지
+    같이 깨지는 문제가 있었음.
+  - **`getTocData(keyword)`** — 목차데이터 폴더의 `키워드.json`을 읽어
+    `{keyword, title, slideId, toc}` 반환(없으면 `null`). **시스템 A 뷰어가
+    데이터를 가져오는 유일한 통로.**
+  - **`getDbColumnIndexes(headerRow)`** — DB 시트 헤더 배열에서 컬럼 인덱스를
+    이름으로 찾되, 못 찾으면(오타·변경) 열 순서가 고정이라는 전제하에 정해진
+    번호로 대체(공개 함수, 시스템 B도 그대로 씀). DB 시트 관련 코드에서는
+    `header.indexOf(...)`를 직접 쓰지 말고 이 함수를 통할 것.
+  - **`getDbSheet_(dbSheetId)`**(비공개) — DB 시트를 위치(`getSheets()[0]`)가
+    아니라 이름(`"강의목록"`)으로 찾음. 시트 탭 순서가 바뀌어도 안전.
+  - `lectureExists(keyword)` 그대로(신규 등록 중복 방지용).
+  - DB 시트 실제 헤더가 스펙과 달랐던 문제(B열이 `제목`이 아니라 `강의제목`)를
+    발견해 코드를 실제 헤더에 맞게 고침(아래 "DB 스프레드시트 구조" 표가 현재
+    기준 — 코드에서 컬럼 찾을 때 이 표의 헤더명을 그대로 쓸 것).
+- `Test.js`: `testStep1()`, `testPublish()` — 편집기 실행 검증 완료.
 
 ### system-b-dashboard (시스템 B 대시보드)
 - `clasp create`로 신규 GAS 프로젝트 생성 완료(scriptId는 `.clasp.json`에 있음).
@@ -244,45 +284,62 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
     → 게시엔진 HEAD 최신 코드를 항상 사용). 배포 전엔 `developmentMode`를
     `false`로 바꾸고 고정 버전을 지정하는 것도 고려할 것(안정성).
 - `Dashboard.html`: 강의 목록 표 + 아이콘 버튼(URL복사·뷰어열기, 마우스오버 시
-  풍선도움말) 동작. **"새 강의 추가하기"·"배포 수정"은 모달 폼으로 구현되어
-  `deployLecture()`를 호출**(화면 테스트는 아직 — 아래 체크리스트 참고).
+  풍선도움말) **정상 동작 확인됨**(`VIEWER_URL` 설정 후 실제 뷰어로 이동 확인).
   **"시험문제 생성" · "실시간 설문"은 여전히 토스트만 뜨는 스텁**(`(준비 중)`).
 - `Help.html`: 대시보드와 동일한 톤의 도움말 페이지. 5개 섹션 전부 "내용 준비
   중입니다" 임시 텍스트 — 추후 실제 사용법으로 교체 필요.
-- 현재 배포는 2개 확인됨: `@HEAD`(테스트용, 항상 최신 코드 반영) / `@3`(고정
-  버전). 운영 중인 웹앱 URL이 `@3` 같은 고정 버전이면 push만으로는 반영 안 됨
-  → 아래 "실행/배포 시 주의사항" 참고.
+- 배포된 웹앱이 고정 버전(`/exec`)이면 `clasp push`만으로는 반영 안 됨 →
+  "실행/배포 시 주의사항" 참고(이번 세션에 system-a-viewer에서 실제로 겪음).
 
-### 새 강의 추가/배포 수정 흐름 (진행 중)
-전체 설계: 강사가 시스템 B에서 키워드·제목·URL 입력 → `google.script.run`으로
-시스템 B의 `deployLecture(url, keyword, title, isNew)` 호출 → 그 함수가
-`PublishEngine.publishLecture()` 호출 → 성공 시 목록 새로고침.
-**"새 강의 추가"와 "배포 수정"은 내부적으로 같은 `publishLecture()`를 쓰지만,
-입력 단계에서 용도가 엄격히 구분된다** (2026-07-27 확정):
-- **새 강의 추가**(`isNew=true`): 키워드가 이미 DB에 있으면 등록 자체를 막는다.
-  모달에서 키워드 입력 즉시(`onKeywordInput()`) 클라이언트가 `lectureData`를
-  대조해 경고를 보여주고 배포 버튼을 비활성화하며, 제출 시에도 다시 확인한다.
-  최종 방어선은 서버: `deployLecture`가 `PublishEngine.lectureExists(keyword)`로
-  한 번 더 확인해 중복이면 에러를 던진다(클라이언트 목록이 오래됐을 경우 대비).
-- **배포 수정**(`isNew=false`): 목록의 [배포 수정] 버튼으로만 진입, 모달에서
-  키워드 입력칸이 비활성화되어 바꿀 수 없다 — 항상 그 키워드 행을 갱신.
+### 새 강의 추가/배포 수정/삭제 흐름 (완성)
+전체 설계: 강사가 시스템 B에서 키워드·제목·URL(+목차 추출 방식) 입력 →
+`google.script.run`으로 `deployLecture(url, keyword, title, isNew, tocMethod)` 호출
+→ 성공 시 목록 새로고침. **화면 테스트까지 완료.**
 
-- [x] 1단계 — 배포엔진 `publishLecture()` 구현 (`Publish.js`)
-- [x] `testPublish()` 편집기에서 실행해 검증 완료(2026-07-27) — 공유 설정 변경,
-      `목차데이터/test01.json` 생성, DB 스프레드시트 행 추가까지 전부 확인됨.
-      (`viewerUrl`은 `VIEWER_URL` 미설정이라 빈 값 — 시스템 A 배포 전까지는 정상)
-- [x] 2단계 — 시스템 B `Dashboard.html`에 입력 폼(키워드·제목·URL) 모달 + [배포] 버튼
-      ("새 강의 추가하기"·"배포 수정" 버튼이 같은 모달을 연다. 배포 수정 모드는
-      키워드 입력칸을 비활성화해 실수로 새 행이 생기는 것을 방지)
-- [x] 3단계 — 시스템 B `Code.js`에 `deployLecture(url, keyword, title)` 추가
-      (입력값 trim/필수값 검증 후 `PublishEngine.publishLecture()` 호출하는 다리 역할)
-- [ ] 4단계 — **실제 웹앱 화면에서 폼 입력 → 배포 → 목록 자동 새로고침 + 성공/실패
-      알림까지 눈으로 확인** (아직 미검증 — 다음에 할 일)
-- [x] 대시보드의 "배포 수정" 버튼도 같은 `deployLecture()`를 재사용하도록 연결됨
-      (코드상 완료, 화면 테스트는 4단계에 포함)
+- **새 강의 추가**(`isNew=true`): 키워드가 이미 DB에 있으면 등록 자체를 막는다
+  (클라이언트 `onKeywordInput()` 즉시 체크 + 서버 `lectureExists()` 재확인).
+  URL 필수. URL 필드 아래에 "구글슬라이드 파일을 열어 주소창 URL을 복사해서
+  붙여넣기" 안내 표시.
+- **배포 수정**(`isNew=false`): 키워드 입력칸 비활성화(고정). 모달을 열면
+  URL 필드는 **비워진 채**로 열리고, 기존에 등록된 URL은 회색 placeholder로만
+  보인다(참고용, 제출값 아님) — **URL 입력 여부로 동작이 갈린다**:
+  - **URL 비움** → `updateLectureTitle()` 경로. 제목만 바뀌고 슬라이드·목차는
+    그대로 유지(재추출 없음). "제목만 수정합니다" 확인창.
+  - **URL 입력** → `publishLecture()` 경로. 그 슬라이드로 전체 재배포, 목차도
+    새로 생성. "새 슬라이드로 갱신합니다" 확인창.
+  - 모달 하단 좌측에 **[배포 삭제]** 버튼(빨간색, 배포 수정 모드에서만 노출) →
+    `deleteLectureConfirm()` → 확인창(슬라이드는 안 지워지지만 공유 범위가
+    "내부만 접근 가능"으로 바뀌고, 목차 json 삭제, 뷰어 링크 끊김, 목록에서
+    제거됨을 안내) → `deleteLecture(keyword)` → `PublishEngine.unpublishLecture()`.
+- **목차 추출 방식**: URL 필드 아래 라디오 버튼으로 `'title'`(제목만, 기본값)
+  / `'firstText'`(첫 텍스트 도형) 선택. 모달 열 때마다 `'title'`로 초기화.
+- URL 에러(예: PPT를 그냥 연 주소를 넣었을 때)는 토스트가 아니라 URL 필드
+  바로 아래 인라인 빨간 텍스트(`#urlError`)로 표시되고 줄바꿈이 유지됨,
+  URL 필드를 다시 건드리면 사라짐.
+- 모달은 바깥 영역을 클릭해도 닫히지 않음(취소 버튼이나 우측 상단 × 로만 닫힘)
+  — 실수로 입력 내용이 날아가는 것 방지.
+
+### system-a-viewer (시스템 A 뷰어) — 신규 완성, 배포됨
+예전에 스프레드시트에 종속된 프로토타입(`system-a-viewer-ref`, 참고용으로
+`clasp clone`했다가 삭제함)이 있었지만 **코드는 재사용하지 않고 디자인만
+참고해 전부 새로 작성**함.
+- `appsscript.json`: `PublishEngine` 라이브러리 연결(system-b-dashboard와 같은
+  libraryId), `webapp.executeAs: USER_DEPLOYING`, `webapp.access: ANYONE_ANONYMOUS`.
+- `Code.js`의 `doGet(e)`: `?k=키워드` → `PublishEngine.getTocData(keyword)` 하나로만
+  데이터를 가져옴. 키워드 없음/못 찾음/내부 오류 전부 **키워드 원문을 화면에
+  절대 노출하지 않는 고정 문구**로 처리(CLAUDE.md 보안 정책 반영). `getTocData()`
+  호출은 try/catch로 감싸 내부 오류 메시지가 그대로 노출되지 않게 함.
+- `Portal.html` / `Sidebar.html`: 좌측 목차 사이드바(검색 가능) + 우측 슬라이드
+  embed(iframe). 목차 클릭 시 `objectId`로 해당 슬라이드로 이동. `objectId`가 없는
+  기존 데이터(재추출 전 강의)는 클릭해도 에러 없이 무반응 처리. 목차 JSON을
+  `<script>`에 주입할 때 `</script` 조기 종료 방지용 이스케이프 적용.
+- 배포 완료, `/exec?k=키워드`로 실제 열람 확인됨. 배포 중 "고정 버전은 push만으로
+  안 바뀐다"는 문제를 실제로 겪고 배포 관리에서 새 버전으로 갱신해 해결함.
+- `publish-engine`의 `VIEWER_URL` 스크립트 속성에 이 배포 URL을 등록 완료 →
+  시스템 B의 URL복사/뷰어열기 버튼 정상 동작 확인됨.
 
 ### 미착수
-- `system-a-viewer`, `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
+- `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
 - 실시간 설문, 시험문제 생성, AI(`callAI_()`) 연동 전부 미구현.
 
 ---
