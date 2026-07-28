@@ -9,12 +9,14 @@
  * 4) 목차데이터 폴더(없으면 생성)에 키워드.json 저장
  * 5) DB 스프레드시트에 키워드 기준 기록(있으면 갱신, 없으면 추가)
  *
- * @param {string} url      슬라이드 편집 URL
- * @param {string} keyword  뷰어 주소 고정용 키워드(고유 키)
- * @param {string} title    강의 제목
+ * @param {string} url         슬라이드 편집 URL
+ * @param {string} keyword     뷰어 주소 고정용 키워드(고유 키)
+ * @param {string} title       강의 제목
+ * @param {string} [tocMethod] 목차 추출 방식 - 'title'(제목 플레이스홀더만, 기본값)
+ *                             또는 'firstText'(슬라이드 첫 텍스트 도형 사용)
  * @return {Object} { keyword, title, slideId, viewerUrl }
  */
-function publishLecture(url, keyword, title) {
+function publishLecture(url, keyword, title, tocMethod) {
   if (!url || !keyword || !title) {
     throw new Error('url, keyword, title은 모두 필수입니다.');
   }
@@ -44,7 +46,7 @@ function publishLecture(url, keyword, title) {
 
   file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-  const toc = extractSlideToc(slideId);
+  const toc = extractSlideToc(slideId, tocMethod);
 
   const tocFolder = getOrCreateTocFolder_(config.parentFolderId);
   const tocFile = saveTocJson_(tocFolder, keyword, {
@@ -138,6 +140,57 @@ function unpublishLecture(keyword) {
   sheet.deleteRow(rowIndex);
 
   return { keyword: target };
+}
+
+/**
+ * 슬라이드 URL 변경 없이 제목만 수정한다("배포 수정" 모달에서 URL을 비워둔 경우).
+ * 기존 슬라이드ID·목차는 그대로 두고(공유 설정도 다시 안 걸고, 목차도 재추출 안 함),
+ * 목차데이터의 키워드.json과 DB 시트의 제목·최종수정만 갱신한다.
+ * @param {string} keyword
+ * @param {string} title
+ * @return {Object} { keyword, title, slideId, viewerUrl }
+ */
+function updateLectureTitle(keyword, title) {
+  const config = getConfig();
+  const target = String(keyword).trim();
+
+  const existing = getTocData(target);
+  if (!existing) {
+    throw new Error('등록되지 않은 키워드입니다: ' + target);
+  }
+
+  const tocFolder = getOrCreateTocFolder_(config.parentFolderId);
+  saveTocJson_(tocFolder, target, {
+    keyword: target,
+    title: title,
+    slideId: existing.slideId,
+    toc: existing.toc
+  });
+
+  const sheet = SpreadsheetApp.openById(config.dbSheetId).getSheets()[0];
+  const values = sheet.getDataRange().getValues();
+  const header = values[0].map(function (h) { return String(h).trim(); });
+  const idxKeyword = header.indexOf('키워드');
+  const idxTitle = header.indexOf('강의제목');
+  const idxUpdated = header.indexOf('최종수정');
+
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][idxKeyword]).trim() === target) {
+      sheet.getRange(r + 1, idxTitle + 1).setValue(title);
+      sheet.getRange(r + 1, idxUpdated + 1).setValue(
+        Utilities.formatDate(new Date(), 'Asia/Seoul', 'yyyy-MM-dd HH:mm')
+      );
+      break;
+    }
+  }
+
+  const viewerBase = getSetting('VIEWER_URL');
+  return {
+    keyword: target,
+    title: title,
+    slideId: existing.slideId,
+    viewerUrl: viewerBase ? (viewerBase + '?k=' + encodeURIComponent(target)) : ''
+  };
 }
 
 /**

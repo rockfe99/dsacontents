@@ -127,6 +127,9 @@
   .field input:disabled { background: var(--bg); color: var(--ink-soft); }
   .field .hint { margin-top: 4px; font-size: 11.5px; color: var(--ink-soft); }
   .field .hint.hint-error { color: #c0392b; font-weight: 600; white-space: pre-line; }
+  .radio-group { display: flex; flex-direction: column; gap: 6px; }
+  .radio-option { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink); font-weight: 400; cursor: pointer; }
+  .radio-option input { width: auto; margin: 0; }
   .modal-footer {
     padding: 14px 22px; border-top: 1px solid var(--line);
     display: flex; justify-content: space-between; align-items: center; gap: 8px;
@@ -224,7 +227,21 @@
         <div class="field">
           <label for="fieldUrl">슬라이드 편집 URL</label>
           <input type="text" id="fieldUrl" placeholder="https://docs.google.com/presentation/d/..." oninput="clearUrlError()">
+          <div class="hint" id="urlHint"></div>
           <div class="hint hint-error" id="urlError" style="display:none;"></div>
+        </div>
+        <div class="field" id="tocMethodField">
+          <label>목차 추출 방식</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="tocMethod" value="title" checked>
+              제목만 추출(제목 개체가 있는 슬라이드만)
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="tocMethod" value="firstText">
+              첫 번째 문자열 사용(모든 슬라이드의 첫 텍스트)
+            </label>
+          </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -339,6 +356,7 @@
     var titleInput = document.getElementById('fieldTitle');
     var urlInput   = document.getElementById('fieldUrl');
     var hint       = document.getElementById('keywordHint');
+    var urlHint    = document.getElementById('urlHint');
     var submitBtn  = document.getElementById('modalSubmitBtn');
     var deleteBtn  = document.getElementById('modalDeleteBtn');
 
@@ -346,6 +364,9 @@
     kwInput.value = mode === 'edit' ? item.keyword : '';
     titleInput.value = mode === 'edit' ? item.title : '';
     urlInput.value = '';
+    urlInput.placeholder = (mode === 'edit' && item.sourceUrl)
+      ? item.sourceUrl
+      : 'https://docs.google.com/presentation/d/...';
     kwInput.disabled = (mode === 'edit');
     deleteBtn.style.display = (mode === 'edit') ? '' : 'none';
     deleteBtn.disabled = false;
@@ -353,8 +374,17 @@
     clearUrlError();
     hint.classList.remove('hint-error');
     hint.textContent = mode === 'edit'
-      ? '배포 수정에서는 키워드를 바꿀 수 없습니다. 새 슬라이드 URL을 입력하면 같은 뷰어 주소로 내용만 갱신됩니다.'
+      ? '배포 수정에서는 키워드를 바꿀 수 없습니다.'
       : '뷰어 주소(?k=키워드)에 고정으로 쓰입니다. 이미 있는 키워드는 등록할 수 없습니다(수정은 목록의 "배포 수정" 이용).';
+    urlHint.textContent = mode === 'edit'
+      ? '슬라이드 URL을 비워두면 제목만 바뀌고 슬라이드·목차는 그대로 유지됩니다. URL을 입력하면 그 슬라이드로 다시 배포되며 목차도 새로 생성됩니다.'
+      : '공개하고자 하는 구글슬라이드 파일을 열어 주소창에 표시되는 URL을 복사해서 붙여넣기 하세요.';
+
+    var tocMethodRadios = document.getElementsByName('tocMethod');
+    for (var i = 0; i < tocMethodRadios.length; i++) {
+      tocMethodRadios[i].checked = (tocMethodRadios[i].value === 'title');
+    }
+
     submitBtn.disabled = false;
 
     document.getElementById('lectureModalOverlay').classList.add('show');
@@ -402,8 +432,14 @@
     var keyword = document.getElementById('fieldKeyword').value.trim();
     var title = document.getElementById('fieldTitle').value.trim();
     var url = document.getElementById('fieldUrl').value.trim();
+    var tocMethodInput = document.querySelector('input[name="tocMethod"]:checked');
+    var tocMethod = tocMethodInput ? tocMethodInput.value : 'title';
 
-    if (!keyword || !title || !url) {
+    if (!keyword || !title) {
+      showToast('키워드와 제목을 모두 입력하세요');
+      return;
+    }
+    if (currentModalMode === 'new' && !url) {
       showToast('키워드, 제목, URL을 모두 입력하세요');
       return;
     }
@@ -414,12 +450,18 @@
     }
 
     if (currentModalMode === 'edit') {
-      var okEdit = confirm(
-        '"' + keyword + '"의 배포 내용을 새 정보로 갱신합니다.\n\n' +
-        '- 목차가 지금 입력한 슬라이드 기준으로 새로 생성됩니다.\n' +
-        '- 뷰어 주소(?k=' + keyword + ')는 그대로 유지되고, 내용만 갱신됩니다.\n\n' +
-        '계속하시겠습니까?'
-      );
+      var okEdit = url
+        ? confirm(
+            '"' + keyword + '"의 배포 내용을 새 슬라이드로 갱신합니다.\n\n' +
+            '- 목차가 지금 입력한 슬라이드 기준으로 새로 생성됩니다.\n' +
+            '- 뷰어 주소(?k=' + keyword + ')는 그대로 유지되고, 내용만 갱신됩니다.\n\n' +
+            '계속하시겠습니까?'
+          )
+        : confirm(
+            '"' + keyword + '"의 제목만 "' + title + '"(으)로 수정합니다.\n\n' +
+            '- 슬라이드와 목차는 그대로 유지되며 다시 추출하지 않습니다.\n\n' +
+            '계속하시겠습니까?'
+          );
       if (!okEdit) return;
     }
 
@@ -441,7 +483,7 @@
         btn.textContent = '배포';
         showUrlError(err.message);
       })
-      .deployLecture(url, keyword, title, currentModalMode === 'new');
+      .deployLecture(url, keyword, title, currentModalMode === 'new', tocMethod);
   }
 
   /** "배포 수정" 모달의 [삭제] 버튼: 배포를 내린다(슬라이드 파일 자체는 유지). */

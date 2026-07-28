@@ -60,6 +60,7 @@ function getLectureList() {
   const header = values[0].map(function (h) { return String(h).trim(); });
   const idxKeyword = header.indexOf('키워드');
   const idxTitle   = header.indexOf('강의제목');
+  const idxUrl     = header.indexOf('게시URL');
   const idxUpdated = header.indexOf('최종수정');
 
   const rows = values.slice(1);
@@ -70,6 +71,7 @@ function getLectureList() {
       return {
         keyword: keyword,
         title: idxTitle >= 0 ? String(r[idxTitle]).trim() : '',
+        sourceUrl: idxUrl >= 0 ? String(r[idxUrl]).trim() : '',
         updated: formatDate_(idxUpdated >= 0 ? r[idxUpdated] : ''),
         viewerUrl: viewerBase ? (viewerBase + '?k=' + encodeURIComponent(keyword)) : ''
       };
@@ -81,22 +83,36 @@ function getLectureList() {
  * 실제 처리는 배포엔진에 위임(다리 역할).
  * isNew=true("새 강의 추가")인데 이미 있는 키워드면 등록을 막는다 — 기존 강의
  * 수정은 반드시 목록의 "배포 수정"(isNew=false)으로만 하도록 강제.
+ * 배포 수정에서 URL을 비워두면(기존 슬라이드 그대로 유지) 제목만 갱신하고
+ * 목차는 재추출하지 않는다 — URL을 입력하면 그 슬라이드로 전체 재배포한다.
+ * tocMethod: 목차 추출 방식 - 'title'(제목만) 또는 'firstText'(첫 문자열).
+ *            URL이 없으면(제목만 갱신) 슬라이드를 다시 안 읽으므로 무시된다.
  * @return {Object} { keyword, title, slideId, viewerUrl }
  */
-function deployLecture(url, keyword, title, isNew) {
+function deployLecture(url, keyword, title, isNew, tocMethod) {
   const cleanUrl = String(url || '').trim();
   const cleanKeyword = String(keyword || '').trim();
   const cleanTitle = String(title || '').trim();
+  const cleanTocMethod = (tocMethod === 'firstText') ? 'firstText' : 'title';
 
-  if (!cleanUrl || !cleanKeyword || !cleanTitle) {
-    throw new Error('키워드, 제목, 슬라이드 URL을 모두 입력하세요.');
+  if (!cleanKeyword || !cleanTitle) {
+    throw new Error('키워드와 제목을 입력하세요.');
   }
 
-  if (isNew && PublishEngine.lectureExists(cleanKeyword)) {
-    throw new Error('이미 등록된 키워드입니다: ' + cleanKeyword + ' (기존 강의는 목록의 "배포 수정"으로 변경하세요)');
+  if (isNew) {
+    if (!cleanUrl) {
+      throw new Error('키워드, 제목, 슬라이드 URL을 모두 입력하세요.');
+    }
+    if (PublishEngine.lectureExists(cleanKeyword)) {
+      throw new Error('이미 등록된 키워드입니다: ' + cleanKeyword + ' (기존 강의는 목록의 "배포 수정"으로 변경하세요)');
+    }
+    return PublishEngine.publishLecture(cleanUrl, cleanKeyword, cleanTitle, cleanTocMethod);
   }
 
-  return PublishEngine.publishLecture(cleanUrl, cleanKeyword, cleanTitle);
+  if (cleanUrl) {
+    return PublishEngine.publishLecture(cleanUrl, cleanKeyword, cleanTitle, cleanTocMethod);
+  }
+  return PublishEngine.updateLectureTitle(cleanKeyword, cleanTitle);
 }
 
 /**
