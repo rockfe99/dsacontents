@@ -124,8 +124,8 @@ function setAllProperties() {
     'PARENT_FOLDER_ID': '1AwU4YgMjPcgW36IIXZl94gsLNtKJgP-6',
     //파일목록이 저장되는 스프레드시트 ID
     'DB_SHEET_ID':      '1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o',
-    // 시스템 A 배포 후 URL 입력
-    'VIEWER_URL':       '',   
+    // 시스템 A 배포 URL
+    'VIEWER_URL':       'https://script.google.com/macros/s/AKfycbwlgZvfs03LJbMX1r0gbQwRUlCZsEYKBBfceEWnPN0FeHfEcDc9vwkFxnOigFdCSNZtyg/exec',   
 
     // --- 민감 (나중에 값 채우기) ---
     'GEMINI_KEY':       '',

@@ -1,0 +1,54 @@
+/**
+ * 시스템 A - 수강생 뷰어
+ * ?k=키워드로 접속. 로그인 불필요, 열람 전용(편집·다운로드 불가).
+ * 목차·슬라이드ID는 게시엔진의 PublishEngine.getTocData(keyword) 하나로만 가져온다.
+ *
+ * [사전 준비] 이 프로젝트 편집기 > 왼쪽 "라이브러리 +" > 게시엔진 스크립트ID로
+ *            'PublishEngine' 식별자 추가 (appsscript.json에도 등록되어 있어야 함)
+ */
+
+var MSG_NO_KEYWORD = '주소에 강의 키워드(?k=)가 없습니다.';
+var MSG_NOT_FOUND  = '아직 관리자가 강의를 배포하지 않았거나 존재하지 않는 키워드입니다.';
+var MSG_ERROR      = '일시적인 오류로 강의를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+
+function doGet(e) {
+  var keyword = String((e && e.parameter && e.parameter.k) || '').trim();
+
+  if (!keyword) {
+    return plainMessage_(MSG_NO_KEYWORD);
+  }
+
+  var data;
+  try {
+    data = PublishEngine.getTocData(keyword);
+  } catch (err) {
+    // 내부 오류 메시지는 화면에 노출하지 않는다
+    return plainMessage_(MSG_ERROR);
+  }
+
+  if (!data) {
+    return plainMessage_(MSG_NOT_FOUND); // keyword를 절대 이어붙이지 않는다(보안 정책)
+  }
+
+  var toc = Array.isArray(data.toc) ? data.toc : [];
+  // <script> 태그 안에 원문 그대로 주입되므로 "</script" 조기 종료 방지용 최소 이스케이프
+  var tocJson = JSON.stringify(toc).replace(/</g, '\\u003c');
+
+  var template = HtmlService.createTemplateFromFile('Portal');
+  template.title   = data.title || '강의 자료';
+  template.slideId = data.slideId || '';
+  template.tocJson = tocJson;
+
+  return template.evaluate()
+    .setTitle(data.title || '강의 자료')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** 고정 안내 문구만 출력한다. 사용자 입력을 절대 이어붙이지 않는 용도로만 쓴다. */
+function plainMessage_(message) {
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:\'Malgun Gothic\',sans-serif;padding:60px 20px;' +
+    'text-align:center;color:#495057;font-size:15px;">' + message + '</div>'
+  );
+}

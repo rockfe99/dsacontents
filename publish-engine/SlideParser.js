@@ -12,7 +12,8 @@ function extractSlideId(url) {
 
 /**
  * 슬라이드ID로 프레젠테이션을 열어 목차(슬라이드별 제목)를 추출한다.
- * 반환: [{ index: 1, title: '...' }, ...]
+ * objectId는 뷰어에서 목차 클릭 시 해당 슬라이드로 바로 이동하는 데 쓰인다.
+ * 반환: [{ index: 1, objectId: '...', title: '...' }, ...]
  */
 function extractSlideToc(slideId) {
   const presentation = SlidesApp.openById(slideId);
@@ -21,6 +22,7 @@ function extractSlideToc(slideId) {
   return slides.map(function (slide, i) {
     return {
       index: i + 1,
+      objectId: slide.getObjectId(),
       title: getSlideTitle(slide)
     };
   });

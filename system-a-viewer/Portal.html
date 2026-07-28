@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title><?= title ?></title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Malgun Gothic', sans-serif; }
+    #wrapper { display: flex; width: 100%; height: 100%; }
+    #sidebar { width: 320px; height: 100%; background: #f8f9fa; border-right: 1px solid #dee2e6; box-sizing: border-box; display: flex; flex-direction: column; }
+    #content-frame { flex: 1; height: 100%; border: none; }
+    #content-frame.empty { display: flex; align-items: center; justify-content: center; color: #868e96; font-size: 14px; }
+
+    @media (max-width: 700px) {
+      #wrapper { flex-direction: column; }
+      #sidebar { width: 100%; height: 40%; border-right: none; border-bottom: 1px solid #dee2e6; }
+      #content-frame { height: 60%; }
+    }
+  </style>
+</head>
+<body>
+
+  <div id="wrapper">
+    <div id="sidebar">
+      <?!= HtmlService.createHtmlOutputFromFile('Sidebar').getContent(); ?>
+    </div>
+    <? if (slideId) { ?>
+      <iframe id="content-frame"
+        src="https://docs.google.com/presentation/d/<?= slideId ?>/embed?start=false&loop=false&delayms=3000"
+        allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true"></iframe>
+    <? } else { ?>
+      <div id="content-frame" class="empty">슬라이드를 불러올 수 없습니다.</div>
+    <? } ?>
+  </div>
+
+  <script>
+    var TOC_DATA = <?!= tocJson ?>;
+
+    window.addEventListener('DOMContentLoaded', function () {
+      if (typeof window.initSidebar === 'function') {
+        window.initSidebar(TOC_DATA);
+      }
+    });
+
+    window.jumpToSlide = function (objectId) {
+      if (!objectId) return;
+      var iframe = document.getElementById('content-frame');
+      if (!iframe || iframe.tagName !== 'IFRAME') return;
+      var baseUrl = iframe.src.split('#')[0];
+      iframe.src = baseUrl + '#slide=id.' + encodeURIComponent(objectId);
+    };
+  </script>
+</body>
+</html>

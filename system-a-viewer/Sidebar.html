@@ -1,0 +1,67 @@
+<style>
+  .toc-header { padding: 20px 15px 10px 15px; border-bottom: 1px solid #e9ecef; background: #fff; }
+  .toc-header h3 { margin: 0 0 5px 0; font-size: 16px; color: #212529; }
+  .toc-header p { margin: 0 0 12px 0; font-size: 11px; color: #6c757d; }
+  .search-box { width: 100%; padding: 8px 12px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; font-size: 13px; }
+  .list-container { flex: 1; overflow-y: auto; padding: 15px; background: #f8f9fa; }
+  .toc-item { padding: 6px 10px; margin-bottom: 3px; background: #fff; border: 1px solid #e9ecef; border-radius: 5px; cursor: pointer; display: flex; align-items: flex-start; transition: all 0.15s ease-in-out; }
+  .toc-item:hover { background: #e8f0fe; border-color: #4285f4; }
+  .toc-item.no-jump { cursor: default; opacity: 0.6; }
+  .toc-item.no-jump:hover { background: #fff; border-color: #e9ecef; }
+  .toc-idx { font-weight: bold; color: #4285f4; margin-right: 12px; min-width: 20px; text-align: center; font-size: 13px; }
+  .toc-txt { font-size: 13px; color: #495057; font-weight: 500; line-height: 1.4; word-break: break-all; }
+  #toc-empty { padding: 20px; color: #868e96; font-size: 13px; }
+</style>
+
+<div class="toc-header">
+  <h3>강의 목차</h3>
+  <p>슬라이드 제목을 클릭하면 이동합니다.</p>
+  <input type="text" id="toc-search" class="search-box" placeholder="목차 검색..." oninput="searchMenu()">
+</div>
+<div class="list-container" id="toc-dynamic-list"></div>
+<div id="toc-empty" style="display:none;">등록된 목차가 없습니다.</div>
+
+<script>
+  window.initSidebar = function (data) {
+    var container = document.getElementById('toc-dynamic-list');
+    var emptyMsg = document.getElementById('toc-empty');
+    container.innerHTML = '';
+
+    if (!data || data.length === 0) {
+      emptyMsg.style.display = 'block';
+      return;
+    }
+
+    data.forEach(function (slide) {
+      var item = document.createElement('div');
+      item.className = 'toc-item' + (slide.objectId ? '' : ' no-jump');
+
+      var idx = document.createElement('span');
+      idx.className = 'toc-idx';
+      idx.textContent = slide.index;
+
+      var txt = document.createElement('span');
+      txt.className = 'toc-txt';
+      txt.textContent = slide.title || '';
+
+      item.appendChild(idx);
+      item.appendChild(txt);
+
+      if (slide.objectId) {
+        item.addEventListener('click', function () {
+          window.jumpToSlide(slide.objectId);
+        });
+      }
+      container.appendChild(item);
+    });
+  };
+
+  function searchMenu() {
+    var query = document.getElementById('toc-search').value.toLowerCase();
+    var items = document.getElementsByClassName('toc-item');
+    for (var i = 0; i < items.length; i++) {
+      var text = items[i].querySelector('.toc-txt').textContent.toLowerCase();
+      items[i].style.display = text.indexOf(query) > -1 ? 'flex' : 'none';
+    }
+  }
+</script>

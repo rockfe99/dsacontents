@@ -59,7 +59,7 @@ function getLectureList() {
 
   const header = values[0].map(function (h) { return String(h).trim(); });
   const idxKeyword = header.indexOf('키워드');
-  const idxTitle   = header.indexOf('제목');
+  const idxTitle   = header.indexOf('강의제목');
   const idxUpdated = header.indexOf('최종수정');
 
   const rows = values.slice(1);
@@ -97,6 +97,20 @@ function deployLecture(url, keyword, title, isNew) {
   }
 
   return PublishEngine.publishLecture(cleanUrl, cleanKeyword, cleanTitle);
+}
+
+/**
+ * 대시보드의 "배포 수정" 모달 [삭제] 버튼에서 호출: 배포를 내린다.
+ * 실제 처리는 배포엔진에 위임(다리 역할). 슬라이드 파일 자체는 삭제되지 않고
+ * 공유 범위만 되돌아가며, 목차 json 삭제와 DB 행 제거까지 배포엔진이 처리한다.
+ * @return {Object} { keyword }
+ */
+function deleteLecture(keyword) {
+  const cleanKeyword = String(keyword || '').trim();
+  if (!cleanKeyword) {
+    throw new Error('키워드가 없습니다.');
+  }
+  return PublishEngine.unpublishLecture(cleanKeyword);
 }
 
 /** 날짜 값을 'yyyy-MM-dd HH:mm' 문자열로 변환. */

@@ -62,9 +62,9 @@
 
   .col-num   { width: 48px;  text-align: center; color: var(--ink-soft); }
   .col-key   { width: 120px; }
-  .col-title { min-width: 200px; }
+  .col-title { width: 160px; }
   .col-time  { width: 150px; white-space: nowrap; color: var(--ink-soft); font-size: 13px; }
-  .col-url   { width: 130px; }
+  .col-url   { width: 260px; }
   .col-act   { width: 300px; white-space: nowrap; }
 
   .keyword {
@@ -126,17 +126,24 @@
   .field input:focus { outline: none; border-color: var(--blue-500); }
   .field input:disabled { background: var(--bg); color: var(--ink-soft); }
   .field .hint { margin-top: 4px; font-size: 11.5px; color: var(--ink-soft); }
-  .field .hint.hint-error { color: #c0392b; font-weight: 600; }
+  .field .hint.hint-error { color: #c0392b; font-weight: 600; white-space: pre-line; }
   .modal-footer {
     padding: 14px 22px; border-top: 1px solid var(--line);
-    display: flex; justify-content: flex-end; gap: 8px;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
   }
+  .modal-footer .footer-right { display: flex; gap: 8px; }
   .btn-ghost {
     border: 1px solid var(--line); background: var(--white); color: var(--ink-soft);
     border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600;
     cursor: pointer; font-family: inherit;
   }
   .btn-ghost:hover { background: var(--bg); }
+  .btn-danger {
+    border: 1px solid #c0392b; background: var(--white); color: #c0392b;
+    border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn-danger:hover { background: #fdecea; }
 
   .empty { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
   .loading { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
@@ -198,7 +205,7 @@
     </div>
   </main>
 
-  <div class="modal-overlay" id="lectureModalOverlay" onclick="if (event.target === this) closeLectureModal();">
+  <div class="modal-overlay" id="lectureModalOverlay">
     <div class="modal">
       <div class="modal-header">
         <h3 id="modalTitle">새 강의 추가</h3>
@@ -216,12 +223,16 @@
         </div>
         <div class="field">
           <label for="fieldUrl">슬라이드 편집 URL</label>
-          <input type="text" id="fieldUrl" placeholder="https://docs.google.com/presentation/d/...">
+          <input type="text" id="fieldUrl" placeholder="https://docs.google.com/presentation/d/..." oninput="clearUrlError()">
+          <div class="hint hint-error" id="urlError" style="display:none;"></div>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn-ghost" onclick="closeLectureModal()">취소</button>
-        <button class="btn-primary" id="modalSubmitBtn" onclick="submitLecture()">배포</button>
+        <button class="btn-danger" id="modalDeleteBtn" onclick="deleteLectureConfirm()" style="display:none;">배포 삭제</button>
+        <div class="footer-right">
+          <button class="btn-ghost" onclick="closeLectureModal()">취소</button>
+          <button class="btn-primary" id="modalSubmitBtn" onclick="submitLecture()">배포</button>
+        </div>
       </div>
     </div>
   </div>
@@ -329,12 +340,17 @@
     var urlInput   = document.getElementById('fieldUrl');
     var hint       = document.getElementById('keywordHint');
     var submitBtn  = document.getElementById('modalSubmitBtn');
+    var deleteBtn  = document.getElementById('modalDeleteBtn');
 
     document.getElementById('modalTitle').textContent = mode === 'edit' ? '배포 수정' : '새 강의 추가';
     kwInput.value = mode === 'edit' ? item.keyword : '';
     titleInput.value = mode === 'edit' ? item.title : '';
     urlInput.value = '';
     kwInput.disabled = (mode === 'edit');
+    deleteBtn.style.display = (mode === 'edit') ? '' : 'none';
+    deleteBtn.disabled = false;
+    deleteBtn.textContent = '배포 삭제';
+    clearUrlError();
     hint.classList.remove('hint-error');
     hint.textContent = mode === 'edit'
       ? '배포 수정에서는 키워드를 바꿀 수 없습니다. 새 슬라이드 URL을 입력하면 같은 뷰어 주소로 내용만 갱신됩니다.'
@@ -347,6 +363,20 @@
 
   function closeLectureModal() {
     document.getElementById('lectureModalOverlay').classList.remove('show');
+  }
+
+  /** URL 필드 아래 에러 메시지를 숨긴다. 사용자가 URL을 다시 손대면 호출됨. */
+  function clearUrlError() {
+    var urlError = document.getElementById('urlError');
+    urlError.style.display = 'none';
+    urlError.textContent = '';
+  }
+
+  /** URL 필드 아래에 배포 실패 메시지를 표시한다(줄바꿈 그대로 유지). */
+  function showUrlError(msg) {
+    var urlError = document.getElementById('urlError');
+    urlError.textContent = msg;
+    urlError.style.display = 'block';
   }
 
   /** 신규 등록 모드에서 키워드가 이미 목록에 있으면 즉시 경고 표시 + 배포 버튼 비활성화. */
@@ -383,6 +413,17 @@
       return;
     }
 
+    if (currentModalMode === 'edit') {
+      var okEdit = confirm(
+        '"' + keyword + '"의 배포 내용을 새 정보로 갱신합니다.\n\n' +
+        '- 목차가 지금 입력한 슬라이드 기준으로 새로 생성됩니다.\n' +
+        '- 뷰어 주소(?k=' + keyword + ')는 그대로 유지되고, 내용만 갱신됩니다.\n\n' +
+        '계속하시겠습니까?'
+      );
+      if (!okEdit) return;
+    }
+
+    clearUrlError();
     var btn = document.getElementById('modalSubmitBtn');
     btn.disabled = true;
     btn.textContent = '배포 중…';
@@ -398,9 +439,39 @@
       .withFailureHandler(function (err) {
         btn.disabled = false;
         btn.textContent = '배포';
-        showToast('배포 실패: ' + err.message);
+        showUrlError(err.message);
       })
       .deployLecture(url, keyword, title, currentModalMode === 'new');
+  }
+
+  /** "배포 수정" 모달의 [삭제] 버튼: 배포를 내린다(슬라이드 파일 자체는 유지). */
+  function deleteLectureConfirm() {
+    var keyword = document.getElementById('fieldKeyword').value.trim();
+    var ok = confirm(
+      '"' + keyword + '" 배포를 삭제하시겠습니까?\n\n' +
+      '- 슬라이드 파일 자체는 삭제되지 않지만, 공유 범위가 "내부(공유 드라이브 멤버)만 접근 가능"으로 바뀌어 공개 링크로는 더 이상 열리지 않습니다.\n' +
+      '- 저장된 목차(json) 파일이 삭제됩니다.\n' +
+      '- 뷰어 주소(?k=' + keyword + ')는 더 이상 동작하지 않으며, 강의 목록에서도 사라집니다.\n\n' +
+      '계속하시겠습니까?'
+    );
+    if (!ok) return;
+
+    var delBtn = document.getElementById('modalDeleteBtn');
+    delBtn.disabled = true;
+    delBtn.textContent = '삭제 중…';
+
+    google.script.run
+      .withSuccessHandler(function () {
+        closeLectureModal();
+        showToast('"' + keyword + '" 배포를 삭제했습니다');
+        loadList();
+      })
+      .withFailureHandler(function (err) {
+        delBtn.disabled = false;
+        delBtn.textContent = '삭제';
+        showUrlError(err.message);
+      })
+      .deleteLecture(keyword);
   }
 
   var toastTimer;

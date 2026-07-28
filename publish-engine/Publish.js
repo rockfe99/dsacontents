@@ -25,8 +25,24 @@ function publishLecture(url, keyword, title) {
   // 공유 드라이브의 파일도 DriveApp 기본 서비스로 접근 가능(파일 단위 작업은
   // supportsAllDrives가 필요한 고급 Drive 서비스 호출이 아님 - CLAUDE.md 규칙 4는
   // 고급 Drive 서비스 사용 시에만 해당).
-  DriveApp.getFileById(slideId)
-    .setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const file = DriveApp.getFileById(slideId);
+
+  // PPT 파일을 "슬라이드로 저장"하지 않고 그냥 연 채로 URL을 복사하면, 오피스
+  // 호환 편집 화면의 주소가 정식 구글 슬라이드 URL과 똑같은 형태
+  // (docs.google.com/presentation/d/{ID}/edit)로 나와 여기까지는 통과해버린다.
+  // 실제 파일이 구글 슬라이드가 아니면 미리 걸러서 원인을 정확히 알려준다.
+  if (file.getMimeType() !== MimeType.GOOGLE_SLIDES) {
+    throw new Error(
+    `❌ 현재 파일은 Google Slides가 아닙니다.\n\n` +
+    `✅ 해결 방법:\n` +
+    `1. Google Drive에서 PPT 파일 열기\n` +
+    `2. "파일 > Google Slides로 저장" 명령 실행\n` +
+    `3. 새로 생성된 Google Slides의 URL 복사\n` +
+    `4. 다시 시도하기`
+    );
+  }
+
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
   const toc = extractSlideToc(slideId);
 
@@ -71,6 +87,73 @@ function lectureExists(keyword) {
   return false;
 }
 
+/**
+ * 배포를 내린다(슬라이드 파일 자체는 삭제하지 않음). 시스템 B "배포 수정" 모달의
+ * [삭제] 버튼에서 호출(라이브러리 공개 함수).
+ * 1) 슬라이드 공유 범위를 "제한됨(PRIVATE)"으로 되돌림 - 공유 드라이브 멤버는
+ *    기존 권한대로 계속 열람 가능, 링크 공유로 열람하던 외부/일반 사용자는 차단됨.
+ * 2) 목차데이터 폴더의 키워드.json을 휴지통으로 이동.
+ * 3) DB 스프레드시트에서 해당 키워드 행을 삭제(키워드 재사용 가능해짐).
+ * @param {string} keyword
+ * @return {Object} { keyword }
+ */
+function unpublishLecture(keyword) {
+  const config = getConfig();
+  const target = String(keyword).trim();
+
+  const sheet = SpreadsheetApp.openById(config.dbSheetId).getSheets()[0];
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) {
+    throw new Error('등록되지 않은 키워드입니다: ' + target);
+  }
+
+  const header = values[0].map(function (h) { return String(h).trim(); });
+  const idxKeyword = header.indexOf('키워드');
+  const idxSlideId = header.indexOf('슬라이드ID');
+
+  let rowIndex = -1;
+  let slideId = '';
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][idxKeyword]).trim() === target) {
+      rowIndex = r + 1; // 시트 상 1-based 행 번호
+      slideId = String(values[r][idxSlideId]).trim();
+      break;
+    }
+  }
+  if (rowIndex === -1) {
+    throw new Error('등록되지 않은 키워드입니다: ' + target);
+  }
+
+  if (slideId) {
+    DriveApp.getFileById(slideId)
+      .setSharing(DriveApp.Access.PRIVATE, DriveApp.Permission.VIEW);
+  }
+
+  const tocFolder = getOrCreateTocFolder_(config.parentFolderId);
+  const tocFiles = tocFolder.getFilesByName(target + '.json');
+  if (tocFiles.hasNext()) {
+    tocFiles.next().setTrashed(true);
+  }
+
+  sheet.deleteRow(rowIndex);
+
+  return { keyword: target };
+}
+
+/**
+ * 키워드에 해당하는 목차 데이터(목차데이터 폴더의 키워드.json)를 읽어 반환한다.
+ * 시스템 A 뷰어가 이 함수 하나로 제목·슬라이드ID·목차를 가져온다(라이브러리 공개 함수).
+ * @param {string} keyword
+ * @return {Object|null} { keyword, title, slideId, toc } 또는 배포된 적 없으면 null
+ */
+function getTocData(keyword) {
+  const config = getConfig();
+  const tocFolder = getOrCreateTocFolder_(config.parentFolderId);
+  const files = tocFolder.getFilesByName(String(keyword).trim() + '.json');
+  if (!files.hasNext()) return null;
+  return JSON.parse(files.next().getBlob().getDataAsString());
+}
+
 /** 기본 폴더 아래 "목차데이터" 폴더를 이름으로 찾고, 없으면 생성해 반환한다. */
 function getOrCreateTocFolder_(parentFolderId) {
   const parent = DriveApp.getFolderById(parentFolderId);
@@ -101,7 +184,7 @@ function saveTocJson_(folder, keyword, data) {
  */
 function writeDbRecord_(dbSheetId, keyword, title, slideId, sourceUrl, tocFileUrl, updatedDate) {
   const sheet = SpreadsheetApp.openById(dbSheetId).getSheets()[0];
-  const header = ['키워드', '제목', '슬라이드ID', '게시URL', '목차JSON', '최종수정'];
+  const header = ['키워드', '강의제목', '슬라이드ID', '게시URL', '목차JSON', '최종수정'];
 
   if (sheet.getLastRow() === 0) {
     sheet.appendRow(header);
