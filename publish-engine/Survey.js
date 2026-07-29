@@ -15,8 +15,9 @@
  * ============================================================
  */
 
-var SURVEY_ACCESS_KEY_CHARS_ = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-var SURVEY_ACCESS_KEY_LENGTH_ = 6;
+// 숫자와 헷갈리는 O, I와 문자와 헷갈리는 0, 1은 제외한다(32자)
+var SURVEY_ACCESS_KEY_CHARS_ = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+var SURVEY_ACCESS_KEY_LENGTH_ = 4;
 var SURVEY_STALE_HOURS_ = 24;
 
 /**
@@ -142,7 +143,7 @@ function cleanupStaleSurveys_() {
   supabaseRequest_('survey_questions?started_at=lt.' + encodeURIComponent(cutoff), 'delete');
 }
 
-/** 영문 대문자+숫자 고유키를 생성한다. */
+/** 영문 대문자+숫자 고유키를 생성한다(헷갈리는 O/I/0/1 제외, 4자리). */
 function generateSurveyAccessKey_() {
   var key = '';
   for (var i = 0; i < SURVEY_ACCESS_KEY_LENGTH_; i++) {

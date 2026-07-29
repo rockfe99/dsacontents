@@ -36,7 +36,7 @@
 -- ============================================================
 create table survey_questions (
   id              bigserial primary key,
-  access_key      varchar(8)  not null,        -- 학생 배포용 고유키 (영대문자+숫자 6자리)
+  access_key      varchar(8)  not null,        -- 학생 배포용 고유키 (영대문자+숫자 4자리, 헷갈리는 O/I/0/1 제외)
   lecture_keyword text        not null,         -- 강의 키워드 (평가·검색 축)
   question_text   text        not null,
   question_type   varchar(20) not null
