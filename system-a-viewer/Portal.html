@@ -22,24 +22,35 @@
     }
     .survey-modal-overlay.show { display: flex; }
     .survey-modal-box {
-      background: #fff; border-radius: 10px; width: 340px; max-width: 100%;
+      background: #fff; border-radius: 10px; width: 380px; max-width: 100%;
       box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 22px; font-family: 'Malgun Gothic', sans-serif;
       box-sizing: border-box;
     }
-    .survey-modal-box h3 { margin: 0 0 14px; font-size: 16px; color: #212529; }
+    .survey-modal-box h3 { margin: 0 0 14px; font-size: 16px; color: #212529; line-height: 1.4; }
     .survey-modal-box input, .survey-modal-box textarea {
       width: 100%; padding: 9px 10px; border: 1px solid #ced4da; border-radius: 5px;
       font-size: 13.5px; font-family: inherit; box-sizing: border-box;
     }
     .survey-modal-box textarea { resize: vertical; }
     .survey-modal-box .hint { font-size: 12px; color: #868e96; margin-top: 6px; }
-    .survey-btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .survey-btn-row { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
     .survey-btn {
       padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
       font-family: inherit; border: 1px solid #ced4da; background: #fff; color: #495057;
     }
     .survey-btn-primary { background: #4285f4; border-color: #4285f4; color: #fff; }
-    .survey-choice-row { display: flex; align-items: center; gap: 6px; font-size: 13.5px; margin: 6px 0; cursor: pointer; }
+
+    .survey-choice-list { display: flex; flex-direction: column; gap: 8px; }
+    .survey-choice-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border: 1px solid #e1e4e8; border-radius: 8px;
+      font-size: 13.5px; color: #212529; cursor: pointer;
+      transition: background .12s, border-color .12s;
+    }
+    .survey-choice-row:hover { background: #f1f3f5; }
+    .survey-choice-row.selected { border-color: #4285f4; background: #eaf1fe; }
+    .survey-choice-row input[type="radio"] { flex: none; width: 16px; height: 16px; accent-color: #4285f4; margin: 0; }
+    .survey-choice-row span { flex: 1; word-break: break-word; }
   </style>
 </head>
 <body>
@@ -112,6 +123,21 @@
     // ===== 실시간 설문 - 답변하기 =====
     var currentSurveyQuestion = null;
 
+    // 같은 브라우저에서 같은 문제를 중복 제출하는 것만 막는 용도(서버 검증은 없음 -
+    // 익명 설문이라 엄격한 방지는 필요 없고, 실수로 여러 번 누르는 것만 걸러내면 충분).
+    function hasAnsweredSurvey_(questionId) {
+      try {
+        return localStorage.getItem('dsaSurveyAnswered_' + questionId) === '1';
+      } catch (e) {
+        return false; // localStorage 사용 불가 환경(시크릿 모드 등)이면 그냥 통과시킨다
+      }
+    }
+    function markSurveyAnswered_(questionId) {
+      try {
+        localStorage.setItem('dsaSurveyAnswered_' + questionId, '1');
+      } catch (e) {}
+    }
+
     window.openSurveyKeyModal = function () {
       document.getElementById('surveyKeyInput').value = '';
       document.getElementById('surveyKeyOverlay').classList.add('show');
@@ -134,6 +160,10 @@
             showSurveyInfo('답변할 문제가 없습니다.');
             return;
           }
+          if (hasAnsweredSurvey_(question.id)) {
+            showSurveyInfo('이미 이 문제에 답변하셨습니다.');
+            return;
+          }
           openSurveyAnswerModal(question);
         })
         .withFailureHandler(function () {
@@ -151,6 +181,9 @@
       area.innerHTML = '';
 
       if (question.question_type === 'multiple_choice') {
+        var list = document.createElement('div');
+        list.className = 'survey-choice-list';
+
         // 보기는 1번부터 순서대로 - 제출값도 텍스트가 아니라 이 번호로 보낸다.
         (question.options || []).forEach(function (opt, i) {
           var row = document.createElement('label');
@@ -159,10 +192,19 @@
           radio.type = 'radio';
           radio.name = 'surveyChoice';
           radio.value = String(i + 1);
+          radio.addEventListener('change', function () {
+            list.querySelectorAll('.survey-choice-row').forEach(function (r) {
+              r.classList.remove('selected');
+            });
+            row.classList.add('selected');
+          });
+          var text = document.createElement('span');
+          text.textContent = (i + 1) + '. ' + opt;
           row.appendChild(radio);
-          row.appendChild(document.createTextNode((i + 1) + '. ' + opt));
-          area.appendChild(row);
+          row.appendChild(text);
+          list.appendChild(row);
         });
+        area.appendChild(list);
       } else if (question.question_type === 'short_answer') {
         var input = document.createElement('input');
         input.type = 'text';
@@ -188,11 +230,11 @@
 
       if (currentSurveyQuestion.question_type === 'multiple_choice') {
         var checked = document.querySelector('input[name="surveyChoice"]:checked');
-        if (!checked) { alert('보기를 선택하세요.'); return; }
+        if (!checked) { showSurveyInfo('보기를 선택하세요.'); return; }
         answerText = checked.value; // 1, 2, 3, 4 ... (선택한 보기 번호)
       } else {
         answerText = document.getElementById('surveyAnswerText').value.trim();
-        if (!answerText) { alert('답변을 입력하세요.'); return; }
+        if (!answerText) { showSurveyInfo('답변을 입력하세요.'); return; }
       }
 
       var btn = document.getElementById('surveyAnswerSubmitBtn');
@@ -203,7 +245,9 @@
           closeSurveyAnswerModal();
           if (!ok) {
             showSurveyInfo('답변할 문제가 없습니다.');
+            return;
           }
+          markSurveyAnswered_(currentSurveyQuestion.id);
         })
         .withFailureHandler(function () {
           btn.disabled = false;
