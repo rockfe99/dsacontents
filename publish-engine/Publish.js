@@ -8,6 +8,8 @@
  * 3) 목차 추출 (SlideParser.js 재사용)
  * 4) 목차데이터 폴더(없으면 생성)에 키워드.json 저장
  * 5) DB 스프레드시트에 키워드 기준 기록(있으면 갱신, 없으면 추가)
+ * 6) 슬라이드 본문 텍스트를 추출해 Supabase에 저장(SlideContent.js 재사용) -
+ *    이 키워드의 기존 내용은 지우고 새로 채운다(신규 등록이든 URL 재배포든 동일)
  *
  * @param {string} url         슬라이드 편집 URL
  * @param {string} keyword     뷰어 주소 고정용 키워드(고유 키)
@@ -57,6 +59,8 @@ function publishLecture(url, keyword, title, tocMethod) {
   });
 
   writeDbRecord_(config.dbSheetId, keyword, title, slideId, url, tocFile.getUrl(), new Date());
+
+  saveSlideContents_(keyword, slideId);
 
   const viewerBase = getSetting('VIEWER_URL');
   return {
@@ -113,6 +117,8 @@ function lectureExists(keyword) {
  * 4) 그 키워드로 쌓인 실시간 설문 데이터(survey_questions·survey_results)를
  *    Supabase에서 전부 삭제(deleteSurveyDataForKeyword) - 키워드 재사용 시
  *    이전 강의의 설문 결과가 새 강의에 섞이지 않도록 함.
+ * 5) 그 키워드로 저장된 슬라이드 본문 텍스트(slide_contents)도 Supabase에서
+ *    전부 삭제(deleteSlideContentsForKeyword).
  * @param {string} keyword
  * @return {Object} { keyword }
  */
@@ -161,8 +167,9 @@ function unpublishLecture(keyword) {
 
   sheet.deleteRow(rowIndex);
 
-  // 강의 완전 삭제이므로 키워드 재사용 시 섞이지 않도록 설문 데이터도 함께 삭제
+  // 강의 완전 삭제이므로 키워드 재사용 시 섞이지 않도록 관련 데이터도 함께 삭제
   deleteSurveyDataForKeyword(target);
+  deleteSlideContentsForKeyword(target);
 
   return { keyword: target };
 }

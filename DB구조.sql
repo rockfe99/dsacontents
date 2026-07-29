@@ -1,5 +1,5 @@
 -- ============================================================
---  DB구조.sql — 실시간 설문 기능 Supabase PostgreSQL 스키마
+--  DB구조.sql — 실시간 설문·슬라이드 본문 텍스트 Supabase PostgreSQL 스키마
 -- ============================================================
 --  대상: Supabase 프로젝트(SUPABASE_URL/SUPABASE_KEY, publish-engine의
 --        스크립트 속성에 등록되어 있음). 이 파일을 Supabase SQL Editor에서
@@ -112,7 +112,39 @@ create index idx_survey_results_keyword on survey_results (lecture_keyword);
 
 
 -- ============================================================
--- 4. RLS — anon/authenticated 키가 유출돼도 접근 불가능하도록 기본 차단.
+-- 4. 슬라이드 본문 텍스트 테이블 — 강의 요약·챗봇·강의자료평가·시험문제
+--    생성에 쓸 원문. survey_results와 달리 "누적"이 아니라 "현재 슬라이드의
+--    스냅샷"이다 — 슬라이드가 교체되면 이전 내용을 지우고 새로 채운다
+--    (목차데이터 폴더의 키워드.json과 같은 성격).
+--
+--    저장 시점(키워드 기준):
+--    - 새 강의 등록(publishLecture, 신규): 전체 추출 → INSERT
+--    - 배포 수정 + URL 변경(재배포): 그 키워드의 기존 행 전부 DELETE →
+--      새 슬라이드 기준으로 재추출 → INSERT (목차 재추출과 같은 타이밍)
+--    - 배포 수정 + 제목만 수정(updateLectureTitle): 슬라이드 내용 자체는
+--      안 바뀌므로 재추출하지 않음(목차 재추출 안 하는 것과 동일 정책)
+--    - 강의 완전 삭제(unpublishLecture): 그 키워드의 행 전부 DELETE
+--      (survey_questions·survey_results와 같은 시점에 정리)
+-- ============================================================
+create table slide_contents (
+  id            bigserial primary key,
+  lecture_keyword text      not null,   -- 강의 키워드 (조회·삭제 축)
+  slide_index   int         not null,   -- 원본 슬라이드 순서(재번호 없음, 목차 index와 동일 기준)
+  object_id     text        not null,   -- 슬라이드 objectId(목차 데이터의 objectId와 매칭용)
+  slide_text    text        not null default '',  -- 슬라이드 내 텍스트 도형을 전부 이어붙인 본문
+  extracted_at  timestamptz not null default now()
+);
+
+-- 한 번의 추출 배치 안에서 슬라이드 중복 삽입을 막는 안전장치
+create unique index uq_slide_contents_keyword_index
+  on slide_contents (lecture_keyword, slide_index);
+
+-- 강의 요약·챗봇 등에서 키워드 기준으로 전체 조회할 때 쓰는 인덱스
+create index idx_slide_contents_keyword on slide_contents (lecture_keyword);
+
+
+-- ============================================================
+-- 5. RLS — anon/authenticated 키가 유출돼도 접근 불가능하도록 기본 차단.
 --    정책을 하나도 만들지 않으면 anon/authenticated 롤은 전부 거부되고,
 --    GAS가 쓰는 service_role 키는 RLS를 항상 우회하므로 정상 동작에는
 --    아무 영향이 없다(이중 방어 목적).
@@ -120,10 +152,11 @@ create index idx_survey_results_keyword on survey_results (lecture_keyword);
 alter table survey_questions    enable row level security;
 alter table survey_temp_answers enable row level security;
 alter table survey_results      enable row level security;
+alter table slide_contents      enable row level security;
 
 
 -- ============================================================
--- 5. 함수
+-- 6. 함수
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -202,7 +235,7 @@ $$;
 
 
 -- ============================================================
--- 6. 처리 흐름 요약 (GAS publish-engine/Survey.js가 호출하는 순서)
+-- 7. 처리 흐름 요약 (GAS publish-engine/Survey.js가 호출하는 순서)
 -- ============================================================
 -- [출제] 강사가 "학생들에게 공개" 클릭
 --   0) DELETE FROM survey_questions WHERE started_at < now() - interval '1 day';

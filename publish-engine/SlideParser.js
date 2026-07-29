@@ -79,3 +79,39 @@ function getFirstShapeText_(slide) {
   }
   return NO_TITLE_;
 }
+
+/**
+ * 슬라이드ID로 프레젠테이션을 열어 슬라이드별 본문 텍스트를 전부 추출한다.
+ * extractSlideToc()(목차용, 제목만)와 달리 제목 유무와 상관없이 모든 슬라이드를
+ * 포함하고, 슬라이드 안의 텍스트 도형 전체를 순서대로 이어붙인다. 강의 요약·
+ * 챗봇·강의자료평가·시험문제 생성에 쓸 원문(Supabase slide_contents 저장용).
+ * @param {string} slideId
+ * @return {Array<{index:number, objectId:string, text:string}>}
+ */
+function extractSlideContents(slideId) {
+  const presentation = SlidesApp.openById(slideId);
+  const slides = presentation.getSlides();
+
+  return slides.map(function (slide, i) {
+    return {
+      index: i + 1,
+      objectId: slide.getObjectId(),
+      text: getAllShapeText_(slide)
+    };
+  });
+}
+
+/** 슬라이드 내 텍스트 도형 전체를 순서대로 이어붙인다(도형 사이는 줄바꿈으로 구분). */
+function getAllShapeText_(slide) {
+  const shapes = slide.getShapes();
+  const texts = [];
+  for (let i = 0; i < shapes.length; i++) {
+    try {
+      const text = shapes[i].getText().asString().trim();
+      if (text) texts.push(text);
+    } catch (e) {
+      // 텍스트 프레임이 없는 도형은 건너뜀
+    }
+  }
+  return texts.join('\n');
+}

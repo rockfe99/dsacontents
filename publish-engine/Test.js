@@ -84,3 +84,17 @@ function testSurveyCleanupOnUnpublish() {
   var after = supabaseRequest_('survey_results?lecture_keyword=eq.test01&select=id', 'get');
   Logger.log('삭제 후 survey_results(test01) 건수: %s (0이어야 정상)', (after.body || []).length);
 }
+
+/**
+ * 슬라이드 본문 텍스트 저장(saveSlideContents_) 확인용. testPublish()를 먼저
+ * 실행해 test01이 등록돼 있어야 한다(publishLecture 안에서 이미 저장이
+ * 실행됐으므로, 이 함수는 Supabase에 실제로 들어갔는지 조회만 한다).
+ */
+function testSlideContents() {
+  var res = supabaseRequest_(
+    'slide_contents?lecture_keyword=eq.test01&select=slide_index,object_id,slide_text&order=slide_index',
+    'get'
+  );
+  Logger.log('slide_contents(test01) 건수: %s', (res.body || []).length);
+  Logger.log('내용: %s', JSON.stringify(res.body, null, 2));
+}
