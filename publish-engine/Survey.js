@@ -143,6 +143,21 @@ function cleanupStaleSurveys_() {
   supabaseRequest_('survey_questions?started_at=lt.' + encodeURIComponent(cutoff), 'delete');
 }
 
+/**
+ * 강의(키워드)를 완전히 삭제할 때 그 키워드에 쌓인 설문 데이터를 전부 지운다.
+ * Publish.js의 unpublishLecture()에서 DB 시트 행·키워드.json 삭제와 함께 호출한다
+ * (키워드 재사용 시 예전 강의의 설문 결과가 새 강의에 섞이는 것을 방지).
+ * 나중에 슬라이드 본문 텍스트 저장 테이블이 생기면, 그 테이블의 키워드별 삭제도
+ * 이 함수에 같이 추가할 것.
+ * @param {string} lectureKeyword
+ */
+function deleteSurveyDataForKeyword(lectureKeyword) {
+  var keyword = encodeURIComponent(lectureKeyword);
+  // survey_questions 삭제 시 survey_temp_answers는 on delete cascade로 함께 삭제됨
+  supabaseRequest_('survey_questions?lecture_keyword=eq.' + keyword, 'delete');
+  supabaseRequest_('survey_results?lecture_keyword=eq.' + keyword, 'delete');
+}
+
 /** 영문 대문자+숫자 고유키를 생성한다(헷갈리는 O/I/0/1 제외, 4자리). */
 function generateSurveyAccessKey_() {
   var key = '';

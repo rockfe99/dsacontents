@@ -68,3 +68,19 @@ function testSurvey() {
   });
   Logger.log('✅ 6) 결과 저장까지 완료. Supabase survey_results 테이블에서 test01 확인 가능.');
 }
+
+/**
+ * 강의 삭제 시 설문 데이터 정리(deleteSurveyDataForKeyword) 단독 테스트.
+ * unpublishLecture() 전체(Drive 공유 해제·시트 행 삭제)를 안 거치고
+ * Supabase 정리 로직만 확인한다. 먼저 testSurvey()를 실행해 test01 설문
+ * 결과를 만들어둔 뒤 이 함수를 실행할 것.
+ */
+function testSurveyCleanupOnUnpublish() {
+  var before = supabaseRequest_('survey_results?lecture_keyword=eq.test01&select=id', 'get');
+  Logger.log('삭제 전 survey_results(test01) 건수: %s', (before.body || []).length);
+
+  deleteSurveyDataForKeyword('test01');
+
+  var after = supabaseRequest_('survey_results?lecture_keyword=eq.test01&select=id', 'get');
+  Logger.log('삭제 후 survey_results(test01) 건수: %s (0이어야 정상)', (after.body || []).length);
+}
