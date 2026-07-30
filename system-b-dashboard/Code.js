@@ -311,6 +311,8 @@ function callAI_(prompt) {
   });
 
   if (res.getResponseCode() !== 200) {
+    // 상세 원인(할당량 초과 등)은 로그로만 남기고, 호출자에게는 상태코드만 전달한다.
+    Logger.log('Gemini API 오류 응답: %s', res.getContentText());
     throw new Error('Gemini API 오류: ' + res.getResponseCode());
   }
 
@@ -321,4 +323,48 @@ function callAI_(prompt) {
 
   if (!text) throw new Error('Gemini 응답에서 텍스트를 찾을 수 없습니다.');
   return text.trim();
+}
+
+/**
+ * 시험문제 자동생성 - ai-server(Cloud Run, Python+LangChain)를 호출해 문제 목록을
+ * 받아온다. slide_contents(그 키워드의 슬라이드 본문)를 근거로 생성된다.
+ * CLAUDE.md 규칙 10: 호출 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정
+ * 안내 문구로 흡수하고, 배포·목차 등 나머지 기능에는 영향이 없어야 한다.
+ * @param {string} keyword
+ * @param {string} questionType  'multiple_choice' | 'short_answer'
+ * @param {number} count
+ * @param {string} provider  'gemini' | 'chatgpt' | 'claude' (현재는 'gemini'만 지원)
+ * @return {Object} { questions: [...] } 또는 실패 시 { error: '고정 안내 문구' }
+ */
+function generateExamQuestions(keyword, questionType, count, provider) {
+  try {
+    var serverUrl = PublishEngine.getSetting('AI_SERVER_URL');
+    var apiKey = PublishEngine.getSecret('AI_SERVER_KEY');
+    if (!serverUrl || !apiKey) {
+      throw new Error('AI_SERVER_URL/AI_SERVER_KEY가 설정되어 있지 않습니다.');
+    }
+
+    var res = UrlFetchApp.fetch(serverUrl + '/exam-questions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'X-API-Key': apiKey },
+      payload: JSON.stringify({
+        keyword: keyword,
+        question_type: questionType,
+        count: count,
+        provider: provider || 'gemini'
+      }),
+      muteHttpExceptions: true
+    });
+
+    if (res.getResponseCode() !== 200) {
+      Logger.log('시험문제 생성 서버 오류: %s %s', res.getResponseCode(), res.getContentText());
+      return { error: 'AI서버 연결이 중지된 상태입니다.' };
+    }
+
+    return JSON.parse(res.getContentText());
+  } catch (err) {
+    Logger.log('시험문제 생성 오류: %s', err);
+    return { error: 'AI서버 연결이 중지된 상태입니다.' };
+  }
 }

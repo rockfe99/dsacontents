@@ -1,3 +1,9 @@
 ﻿.clasprc.json
 **/.clasprc.json
 node_modules/
+
+# ai-server (Python)
+ai-server/.env
+ai-server/__pycache__/
+ai-server/**/__pycache__/
+ai-server/.venv/

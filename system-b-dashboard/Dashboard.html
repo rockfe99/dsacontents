@@ -349,6 +349,51 @@
     </div>
   </div>
 
+  <!-- 시험문제 생성 - 옵션 입력 모달 -->
+  <div class="modal-overlay" id="examCreateOverlay">
+    <div class="modal" style="width:380px;">
+      <div class="modal-header">
+        <h3>시험문제 생성</h3>
+        <button class="modal-close" onclick="closeExamCreate()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <label>AI 모델</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="examProvider" value="gemini" checked> Gemini
+            </label>
+            <label class="radio-option" style="color:var(--ink-soft);">
+              <input type="radio" name="examProvider" value="chatgpt" disabled> ChatGPT (준비 중)
+            </label>
+            <label class="radio-option" style="color:var(--ink-soft);">
+              <input type="radio" name="examProvider" value="claude" disabled> Claude (준비 중)
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label>문제유형</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="examType" value="multiple_choice" checked> 객관식
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="examType" value="short_answer"> 단답형
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="examCount">개수</label>
+          <input type="number" id="examCount" value="3" min="1" max="20">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-ghost" onclick="closeExamCreate()">취소</button>
+        <button class="btn-primary" id="examGenerateBtn" onclick="generateExam()">생성</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 공용 확인/알림 모달. alert()/confirm() 대신 항상 이 모달을 통해서만 사용자에게 확인을 받는다. -->
   <div class="modal-overlay" id="confirmModalOverlay">
     <div class="modal" style="width:380px;">
@@ -389,6 +434,7 @@
 
   var lectureData = [];
   var currentModalMode = 'new';
+  var currentExamKeyword = null;
 
   function renderList(data) {
     lectureData = data;
@@ -446,7 +492,96 @@
     if (!url) { showToast('뷰어 URL이 아직 설정되지 않았습니다'); return; }
     window.open(url, '_blank');
   }
-  function makeQuiz(key)    { showToast('시험문제 생성: ' + key + ' (준비 중)'); }
+  // ===== 시험문제 생성 =====
+  function makeQuiz(key) {
+    currentExamKeyword = key;
+    document.getElementById('examCount').value = 3;
+    document.querySelector('input[name="examProvider"][value="gemini"]').checked = true;
+    document.querySelector('input[name="examType"][value="multiple_choice"]').checked = true;
+    var btn = document.getElementById('examGenerateBtn');
+    btn.disabled = false;
+    btn.textContent = '생성';
+    document.getElementById('examCreateOverlay').classList.add('show');
+  }
+
+  function closeExamCreate() {
+    document.getElementById('examCreateOverlay').classList.remove('show');
+  }
+
+  function generateExam() {
+    var provider = document.querySelector('input[name="examProvider"]:checked').value;
+    var type = document.querySelector('input[name="examType"]:checked').value;
+    var count = parseInt(document.getElementById('examCount').value, 10);
+    if (!count || count < 1) { showToast('개수를 올바르게 입력하세요'); return; }
+
+    var btn = document.getElementById('examGenerateBtn');
+    btn.disabled = true;
+    btn.textContent = '생성 중…';
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        btn.disabled = false;
+        btn.textContent = '생성';
+        if (result && result.error) { showConfirmModal(result.error, { alertOnly: true }); return; }
+        closeExamCreate();
+        openExamResultWindow(result);
+      })
+      .withFailureHandler(function (err) {
+        btn.disabled = false;
+        btn.textContent = '생성';
+        showConfirmModal('AI서버 연결이 중지된 상태입니다.', { alertOnly: true });
+      })
+      .generateExamQuestions(currentExamKeyword, type, count, provider);
+  }
+
+  /** 생성된 시험문제를 복사해서 쓰기 좋은 형태로 새 창에 출력한다(보관은 안 함, 일회성). */
+  function openExamResultWindow(result) {
+    var questions = (result && result.questions) || [];
+    var win = window.open('', '_blank');
+    if (!win) {
+      showConfirmModal('새 창이 차단되었습니다. 브라우저의 팝업 차단을 해제해 주세요.', { alertOnly: true });
+      return;
+    }
+
+    var body;
+    if (!questions.length) {
+      body = '<p>생성된 문제가 없습니다.</p>';
+    } else {
+      var questionsHtml = questions.map(function (q, i) {
+        var block = '<p>' + (i + 1) + '. ' + esc(q.question_text) + '</p>';
+        if (q.options && q.options.length) {
+          block += '<ol type="1">' +
+            q.options.map(function (o) { return '<li>' + esc(o) + '</li>'; }).join('') +
+            '</ol>';
+        }
+        return '<div class="q">' + block + '</div>';
+      }).join('');
+
+      var answerHtml = '<ol>' +
+        questions.map(function (q) { return '<li>' + esc(q.correct_answer) + '</li>'; }).join('') +
+        '</ol>';
+
+      body =
+        '<h2>시험문제</h2>' + questionsHtml +
+        '<hr>' +
+        '<h2>정답</h2>' + answerHtml;
+    }
+
+    win.document.open();
+    win.document.write(
+      '<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">' +
+      '<title>생성된 시험문제</title>' +
+      '<style>' +
+      'body{font-family:"Malgun Gothic",sans-serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1f2733;line-height:1.6;}' +
+      'h2{font-size:16px;border-bottom:2px solid #2563a8;padding-bottom:6px;margin-top:32px;}' +
+      '.q{margin-bottom:16px;}' +
+      'ol{margin:4px 0 0 0;padding-left:24px;}' +
+      '</style></head><body>' +
+      body +
+      '</body></html>'
+    );
+    win.document.close();
+  }
 
   // ===== 실시간 설문 =====
   var currentSurveyKeyword = null;

@@ -7,8 +7,8 @@
  *  값이 바뀌면 배포엔진의 스크립트 속성만 고치면 모든 프로젝트에 반영된다.
  *
  *  [스크립트 속성 등록]  프로젝트 설정 > 스크립트 속성에 아래 키 등록:
- *    공용: PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL
- *    민감: GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY   (실제 값 채우기)
+ *    공용: PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL, AI_SERVER_URL
+ *    민감: GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
  *  또는 setAllProperties()를 한 번 실행해 일괄 등록.
  *
  *  [다른 프로젝트에서 호출]  라이브러리 식별자를 'PublishEngine'으로 추가 후:
@@ -22,14 +22,16 @@
 const PUBLIC_KEYS = [
   'PARENT_FOLDER_ID',   // 시스템 파일 저장 기본 폴더 ID
   'DB_SHEET_ID',        // 관리 DB 스프레드시트 ID
-  'VIEWER_URL'          // 시스템 A(뷰어) 웹앱 배포 URL
+  'VIEWER_URL',         // 시스템 A(뷰어) 웹앱 배포 URL
+  'AI_SERVER_URL'       // ai-server(Cloud Run, Python+LangChain) 서비스 URL
 ];
 
 /** 민감 설정 키(API 키 등). getSecret()로만, 등록된 키만 반환. */
 const SECRET_KEYS = [
   'GEMINI_KEY',         // Gemini API 키
   'SUPABASE_URL',       // Supabase 프로젝트 URL
-  'SUPABASE_KEY'        // Supabase API 키
+  'SUPABASE_KEY',       // Supabase API 키
+  'AI_SERVER_KEY'       // ai-server 호출 인증용 공유 비밀키(X-API-Key 헤더)
 ];
 
 /**
