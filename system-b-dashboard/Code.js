@@ -326,18 +326,35 @@ function callAI_(prompt) {
 }
 
 /**
+ * 대시보드에서 호출: AI 활용 기능(시험문제 생성·가상질문 생성·강의자료 평가) 사용
+ * 가능 여부. 배포엔진의 AI_MODE 스크립트 속성이 'true'일 때만 true - 관리자가
+ * 이 값을 스크립트 속성에서 바꿔가며 AI 기능을 즉시 켜고 끌 수 있다(미설정 시
+ * 안전하게 꺼진 것으로 간주).
+ * @return {boolean}
+ */
+function isAiEnabled() {
+  return PublishEngine.getSetting('AI_MODE') === 'true';
+}
+
+/**
  * 시험문제 자동생성 - ai-server(Cloud Run, Python+LangChain)를 호출해 문제 목록을
  * 받아온다. slide_contents(그 키워드의 슬라이드 본문)를 근거로 생성된다.
  * CLAUDE.md 규칙 10: 호출 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정
  * 안내 문구로 흡수하고, 배포·목차 등 나머지 기능에는 영향이 없어야 한다.
+ * AI_MODE가 꺼져 있으면 ai-server를 아예 호출하지 않고 바로 에러로 응답한다
+ * (화면 쪽 안내 문구는 대시보드가 통일해서 띄운다 - 여기서는 성공/실패만 전달).
  * @param {string} keyword
  * @param {string} questionType  'multiple_choice' | 'short_answer'
  * @param {number} count
  * @param {string} provider  'gemini' | 'chatgpt' | 'claude' (현재는 'gemini'만 지원)
- * @return {Object} { questions: [...] } 또는 실패 시 { error: '고정 안내 문구' }
+ * @return {Object} { questions: [...] } 또는 실패 시 { error: true }
  */
 function generateExamQuestions(keyword, questionType, count, provider) {
   try {
+    if (!isAiEnabled()) {
+      return { error: true };
+    }
+
     var serverUrl = PublishEngine.getSetting('AI_SERVER_URL');
     var apiKey = PublishEngine.getSecret('AI_SERVER_KEY');
     if (!serverUrl || !apiKey) {
@@ -359,12 +376,12 @@ function generateExamQuestions(keyword, questionType, count, provider) {
 
     if (res.getResponseCode() !== 200) {
       Logger.log('시험문제 생성 서버 오류: %s %s', res.getResponseCode(), res.getContentText());
-      return { error: 'AI서버 연결이 중지된 상태입니다.' };
+      return { error: true };
     }
 
     return JSON.parse(res.getContentText());
   } catch (err) {
     Logger.log('시험문제 생성 오류: %s', err);
-    return { error: 'AI서버 연결이 중지된 상태입니다.' };
+    return { error: true };
   }
 }

@@ -65,7 +65,7 @@
   .col-title { width: 160px; }
   .col-time  { width: 150px; white-space: nowrap; color: var(--ink-soft); font-size: 13px; }
   .col-url   { width: 260px; }
-  .col-act   { width: 300px; white-space: nowrap; }
+  .col-act   { width: 460px; }
 
   .keyword {
     display: inline-block; background: var(--blue-050); color: var(--blue-700);
@@ -79,7 +79,7 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
-  .actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 5px; }
+  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
   .btn {
     border: 1px solid var(--blue-100); background: var(--white); color: var(--blue-700);
     border-radius: 5px; padding: 4px 9px; font-size: 12px; font-weight: 500;
@@ -459,9 +459,11 @@
         '<td><div class="actions">' +
           '<button class="btn-icon" title="URL 복사" onclick="copyUrl(\'' + esc(row.viewerUrl) + '\')">' + ICON_COPY + '</button>' +
           '<button class="btn-icon" title="뷰어 열기" onclick="openViewer(\'' + esc(row.viewerUrl) + '\')">' + ICON_OPEN + '</button>' +
-          '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')">시험문제 생성</button>' +
           '<button class="btn" onclick="editDeploy(\'' + esc(row.keyword) + '\')">배포 수정</button>' +
+          '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')">시험문제 생성</button>' +
+          '<button class="btn" onclick="makeVirtualQuestions(\'' + esc(row.keyword) + '\')">가상질문 생성</button>' +
           '<button class="btn btn-strong" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
+          '<button class="btn" onclick="evaluateMaterial(\'' + esc(row.keyword) + '\')">강의자료 평가</button>' +
         '</div></td>' +
       '</tr>';
     }).join('');
@@ -492,16 +494,47 @@
     if (!url) { showToast('뷰어 URL이 아직 설정되지 않았습니다'); return; }
     window.open(url, '_blank');
   }
+  // ===== AI 활용 기능 공용 게이트 (시험문제 생성 / 가상질문 생성 / 강의자료 평가) =====
+  // 오류가 있거나, 개발이 완료되지 않은 기능이거나, 관리자가 AI_MODE를 꺼두었으면
+  // 이 안내 모달만 띄우고 아무 동작도 하지 않는다.
+  function showAiCreditModal() {
+    showConfirmModal('AI 기능을 이용하려면 AI 크레딧이 필요합니다.', { alertOnly: true });
+  }
+
+  /** 서버의 AI_MODE 설정을 확인해 callback(enabled)을 호출한다. 확인 자체가 실패해도 꺼진 것으로 처리. */
+  function checkAiEnabled_(callback) {
+    google.script.run
+      .withSuccessHandler(callback)
+      .withFailureHandler(function () { callback(false); })
+      .isAiEnabled();
+  }
+
+  /** 아직 개발이 완료되지 않은 AI 기능 버튼(가상질문 생성·강의자료 평가) 공용 처리. */
+  function showAiFeatureNotReady_() {
+    showAiCreditModal();
+  }
+
+  function makeVirtualQuestions(key) {
+    showAiFeatureNotReady_();
+  }
+
+  function evaluateMaterial(key) {
+    showAiFeatureNotReady_();
+  }
+
   // ===== 시험문제 생성 =====
   function makeQuiz(key) {
-    currentExamKeyword = key;
-    document.getElementById('examCount').value = 3;
-    document.querySelector('input[name="examProvider"][value="gemini"]').checked = true;
-    document.querySelector('input[name="examType"][value="multiple_choice"]').checked = true;
-    var btn = document.getElementById('examGenerateBtn');
-    btn.disabled = false;
-    btn.textContent = '생성';
-    document.getElementById('examCreateOverlay').classList.add('show');
+    checkAiEnabled_(function (enabled) {
+      if (!enabled) { showAiCreditModal(); return; }
+      currentExamKeyword = key;
+      document.getElementById('examCount').value = 3;
+      document.querySelector('input[name="examProvider"][value="gemini"]').checked = true;
+      document.querySelector('input[name="examType"][value="multiple_choice"]').checked = true;
+      var btn = document.getElementById('examGenerateBtn');
+      btn.disabled = false;
+      btn.textContent = '생성';
+      document.getElementById('examCreateOverlay').classList.add('show');
+    });
   }
 
   function closeExamCreate() {
@@ -522,14 +555,15 @@
       .withSuccessHandler(function (result) {
         btn.disabled = false;
         btn.textContent = '생성';
-        if (result && result.error) { showConfirmModal(result.error, { alertOnly: true }); return; }
+        if (result && result.error) { closeExamCreate(); showAiCreditModal(); return; }
         closeExamCreate();
         openExamResultWindow(result);
       })
       .withFailureHandler(function (err) {
         btn.disabled = false;
         btn.textContent = '생성';
-        showConfirmModal('AI서버 연결이 중지된 상태입니다.', { alertOnly: true });
+        closeExamCreate();
+        showAiCreditModal();
       })
       .generateExamQuestions(currentExamKeyword, type, count, provider);
   }
