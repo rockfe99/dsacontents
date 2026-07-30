@@ -38,6 +38,8 @@
   }
   .help-link:hover { text-decoration: underline; }
   .help-link svg { width: 14px; height: 14px; }
+  .help-link .help-text { white-space: nowrap; }
+  .help-text-mobile { display: none; }
 
   .btn-primary {
     background: var(--blue-700); color: var(--white); border: none; border-radius: 6px;
@@ -49,6 +51,11 @@
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   .toolbar .count { font-size: 13px; color: var(--ink-soft); }
   .toolbar .count strong { color: var(--blue-700); }
+  .search-input {
+    width: 220px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 13px; font-family: inherit; color: var(--ink);
+  }
+  .search-input:focus { outline: none; border-color: var(--blue-500); }
 
   .board { background: var(--white); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   table { width: 100%; border-collapse: collapse; }
@@ -64,8 +71,16 @@
   .col-key   { width: 120px; }
   .col-title { width: 160px; }
   .col-time  { width: 150px; white-space: nowrap; color: var(--ink-soft); font-size: 13px; }
-  .col-url   { width: 260px; }
-  .col-act   { width: 460px; }
+  .col-url   { width: 90px; }
+  .col-act   { width: 400px; }
+
+  /* 화면이 넓을 때(메인 영역이 max-width 1520px에 도달하는 지점 기준)는
+     제목열에 여유 폭을 더 주고, 최종배포·뷰어URL 칸은 좁혀서 공간을 양보한다. */
+  @media (min-width: 1600px) {
+    .col-title { width: 260px; }
+    .col-time  { width: 120px; }
+    .col-url   { width: 70px; }
+  }
 
   .keyword {
     display: inline-block; background: var(--blue-050); color: var(--blue-700);
@@ -73,11 +88,7 @@
   }
   .title-text { font-weight: 600; color: var(--ink); }
 
-  .url-cell { display: flex; align-items: center; gap: 6px; max-width: 130px; }
-  .url-ellipsis {
-    font-size: 12.5px; color: var(--ink-soft); font-family: 'Consolas', monospace;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
+  .url-cell { display: flex; align-items: center; gap: 6px; }
 
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
   .btn {
@@ -179,6 +190,54 @@
     opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ===== 좁은 화면(휴대폰) 대응 ===== */
+  /* 헤더: 제목이 커서 두 글자씩 줄바꿈되던 문제 - 폭이 좁아지면 로고 줄과
+     버튼(도움말·강의추가) 줄을 위아래로 나누고 글자를 줄인다. */
+  @media (max-width: 640px) {
+    header { padding: 0 16px; }
+    .header-inner {
+      height: auto; flex-wrap: wrap; row-gap: 8px; padding: 10px 0;
+    }
+    .brand { flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; }
+    .brand h1 { font-size: 17px; }
+    .header-right { width: 100%; justify-content: space-between; gap: 10px; }
+    /* 아이콘만으로는 잘 안 보여서 작은 "HELP" 문자열을 아이콘 옆에 같이 표시 */
+    .help-link { gap: 3px; }
+    .help-link svg { width: 18px; height: 18px; }
+    .help-link .help-text { display: none; }
+    .help-text-mobile { display: inline; font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
+    .btn-primary { padding: 7px 12px; font-size: 12px; }
+
+    main { padding: 16px; }
+    .toolbar { flex-direction: column; align-items: stretch; gap: 8px; }
+    .search-input { width: 100%; }
+
+    /* 표 -> 카드형: 한 행의 각 항목을 세로로 나열(헤더 행은 숨김) */
+    table, tbody, tr, td { display: block; width: 100%; }
+    thead { display: none; }
+    tbody tr { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+    tbody tr:last-child { border-bottom: none; }
+    tbody td {
+      border-bottom: none; padding: 5px 0;
+      white-space: normal; overflow: visible; text-overflow: clip;
+    }
+    tbody td::before {
+      content: attr(data-label); display: block;
+      font-size: 10.5px; font-weight: 700; color: var(--ink-soft); margin-bottom: 2px;
+    }
+    .col-num { display: none; } /* 카드형에서는 순번 의미가 없어 숨김 */
+    .col-key, .col-title, .col-time, .col-url, .col-act { width: auto; }
+  }
+
+  /* 갤럭시 폴드 접은 화면 등 초협소 폭(~280~320px)에서도 안 깨지도록 추가 축소 */
+  @media (max-width: 340px) {
+    .brand h1 { font-size: 15px; }
+    .brand .sub { display: none; }
+    .btn-primary { padding: 6px 10px; font-size: 11px; }
+    main { padding: 10px; }
+    tbody tr { padding: 10px; }
+  }
 </style>
 </head>
 <body>
@@ -190,14 +249,15 @@
         <span class="sub">사용법은 도움말을 참고하세요.</span>
       </div>
       <div class="header-right">
-        <a class="help-link" href="<?= baseUrl ?>?page=help" target="_blank">
+        <a class="help-link" href="<?= baseUrl ?>?page=help" target="_blank" title="도움말">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                stroke-linecap="round" stroke-linejoin="round">
             <path d="M9 18h6"></path>
             <path d="M10 22h4"></path>
             <path d="M15.09 14c.3-.6.68-1.05 1.16-1.54A6 6 0 1 0 7.75 12.5c.48.49.86.94 1.16 1.5.34.65.51 1.34.51 2h5.16c0-.66.17-1.35.51-2z"></path>
           </svg>
-          도움말
+          <span class="help-text">도움말</span>
+          <span class="help-text-mobile">HELP</span>
         </a>
         <button class="btn-primary" onclick="openNewLecture()">+ 새 강의 추가하기</button>
       </div>
@@ -206,7 +266,9 @@
 
   <main>
     <div class="toolbar">
-      <div class="count">전체 <strong id="totalCount">-</strong>개 강의</div>
+      <div class="count"><strong id="totalCount">-</strong>개 강의</div>
+      <input type="text" class="search-input" id="searchInput" placeholder="강의 제목으로 검색"
+             oninput="filterAndRender()">
     </div>
 
     <div class="board">
@@ -438,41 +500,68 @@
 
   function renderList(data) {
     lectureData = data;
-    var tbody = document.getElementById('lectureList');
-    document.getElementById('totalCount').textContent = data.length;
+    filterAndRender();
+  }
 
-    if (!data.length) {
+  /** 검색어(강의 제목 부분일치, 화면단 필터링 - 스프레드시트 재조회 없음)로 걸러
+   *  최종수정 내림차순 정렬 후 그린다. 검색 입력·정렬 변경 시 이 함수만 다시 호출. */
+  function filterAndRender() {
+    var tbody = document.getElementById('lectureList');
+    var query = document.getElementById('searchInput').value.trim().toLowerCase();
+
+    var filtered = query
+      ? lectureData.filter(function (row) { return row.title.toLowerCase().indexOf(query) !== -1; })
+      : lectureData;
+
+    document.getElementById('totalCount').textContent = filtered.length;
+
+    if (!lectureData.length) {
       tbody.innerHTML = '<tr><td colspan="6"><div class="empty">' +
         '아직 배포된 강의가 없습니다. 우측 상단 [새 강의 추가하기]로 시작하세요.' +
         '</div></td></tr>';
       return;
     }
+    if (!filtered.length) {
+      tbody.innerHTML = '<tr><td colspan="6"><div class="empty">' +
+        '검색 결과가 없습니다.' +
+        '</div></td></tr>';
+      return;
+    }
 
-    tbody.innerHTML = data.map(function (row, i) {
+    // 가장 최근에 배포/수정된 강의가 위로 오도록 최종수정 내림차순 정렬.
+    // updated는 'yyyy-MM-dd HH:mm' 형식(서버 formatDate_)이라 문자열 비교로 시간순 정렬됨.
+    // 값이 없는 행(미배포 등)은 맨 뒤로 밀린다.
+    var sorted = filtered.slice().sort(function (a, b) {
+      if (a.updated === b.updated) return 0;
+      return a.updated > b.updated ? -1 : 1;
+    });
+
+    tbody.innerHTML = sorted.map(function (row, i) {
       return '<tr>' +
-        '<td class="col-num">' + (i + 1) + '</td>' +
-        '<td><span class="keyword">' + esc(row.keyword) + '</span></td>' +
-        '<td><span class="title-text">' + esc(row.title) + '</span></td>' +
-        '<td class="col-time">' + esc(row.updated) + '</td>' +
-        '<td><div class="url-cell"><span class="url-ellipsis" title="' + esc(row.viewerUrl) + '">' +
-            shortUrl(row.viewerUrl) + '</span></div></td>' +
-        '<td><div class="actions">' +
-          '<button class="btn-icon" title="URL 복사" onclick="copyUrl(\'' + esc(row.viewerUrl) + '\')">' + ICON_COPY + '</button>' +
-          '<button class="btn-icon" title="뷰어 열기" onclick="openViewer(\'' + esc(row.viewerUrl) + '\')">' + ICON_OPEN + '</button>' +
-          '<button class="btn" onclick="editDeploy(\'' + esc(row.keyword) + '\')">배포 수정</button>' +
+        '<td class="col-num" data-label="번호">' + (i + 1) + '</td>' +
+        '<td data-label="키워드"><span class="keyword">' + esc(row.keyword) + '</span></td>' +
+        '<td data-label="강의 제목"><span class="title-text">' + esc(row.title) + '</span></td>' +
+        '<td class="col-time" data-label="최종 배포">' + esc(row.updated) + '</td>' +
+        '<td data-label="뷰어 URL">' + renderUrlCell(row.viewerUrl) + '</td>' +
+        '<td data-label="기능"><div class="actions">' +
+          '<button class="btn btn-strong" onclick="editDeploy(\'' + esc(row.keyword) + '\')">배포 수정</button>' +
           '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')">시험문제 생성</button>' +
           '<button class="btn" onclick="makeVirtualQuestions(\'' + esc(row.keyword) + '\')">가상질문 생성</button>' +
-          '<button class="btn btn-strong" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
+          '<button class="btn" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
           '<button class="btn" onclick="evaluateMaterial(\'' + esc(row.keyword) + '\')">강의자료 평가</button>' +
         '</div></td>' +
       '</tr>';
     }).join('');
   }
 
-  function shortUrl(url) {
+  /** 뷰어 URL 칸: URL 텍스트 대신 복사·새창열기 아이콘만 표시. 아이콘에 마우스를
+   *  올리면 title 풍선도움말로 전체 경로가 그대로 보인다. */
+  function renderUrlCell(url) {
     if (!url) return '<span style="color:#b0b8c4">미설정</span>';
-    if (url.length <= 28) return esc(url);
-    return esc(url.slice(0, 24)) + '…';
+    return '<div class="url-cell">' +
+      '<button class="btn-icon" title="URL 복사: ' + esc(url) + '" onclick="copyUrl(\'' + esc(url) + '\')">' + ICON_COPY + '</button>' +
+      '<button class="btn-icon" title="새 창으로 열기: ' + esc(url) + '" onclick="openViewer(\'' + esc(url) + '\')">' + ICON_OPEN + '</button>' +
+      '</div>';
   }
 
   function esc(s) {
@@ -781,11 +870,16 @@
     var html = '<div style="font-weight:600;margin-bottom:10px;">' + esc(r.question_text) + '</div>';
 
     if (r.question_type === 'opinion') {
-      if (r.opinion_summary) {
+      if (!r.total_responses) {
+        html += '<div class="hint">제출된 의견이 없습니다.</div>';
+      } else if (r.opinion_summary) {
         html += '<div class="hint" style="margin-bottom:6px;">AI 요약</div>' +
           '<div class="opinion-box">' + esc(r.opinion_summary) + '</div>';
       } else {
-        html += '<div class="hint hint-error" style="margin-bottom:6px;">AI 요약에 실패하여 학생 답변 원문을 표시합니다.</div>' +
+        var rawNotice = r.ai_enabled
+          ? 'AI 요약에 실패하여 학생 답변 원문을 표시합니다.'
+          : 'AI 기능이 꺼져 있어 학생 답변 원문을 표시합니다.';
+        html += '<div class="hint' + (r.ai_enabled ? ' hint-error' : '') + '" style="margin-bottom:6px;">' + rawNotice + '</div>' +
           '<ol style="padding-left:20px;">' +
           (r.opinion_raw || []).map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') +
           '</ol>';

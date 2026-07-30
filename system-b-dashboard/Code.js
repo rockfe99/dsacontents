@@ -197,10 +197,10 @@ function createSurvey(keyword, questionText, questionType, options, correctAnswe
 
 /**
  * 실시간 설문 - "설문종료" 버튼에서 호출. 종료 처리 → 임시답변 집계/채점
- * (또는 의견형은 callAI_() 요약) → 결과 영구 저장까지 한 번에 수행한다.
- * 의견형 요약(Gemini)이 실패해도 학생 답변 원문(opinion_raw)은 그대로
- * 결과에 남기고 finalizeSurveyResult는 항상 호출한다 - 재시도 없이도
- * 데이터 유실이 생기지 않도록 하기 위함.
+ * (또는 의견형은 callAI_() 요약, AI_MODE가 꺼져 있으면 시도하지 않음) → 결과
+ * 영구 저장까지 한 번에 수행한다. 의견형 요약이 꺼져있거나 실패해도 학생 답변
+ * 원문(opinion_raw)은 그대로 결과에 남기고 finalizeSurveyResult는 항상
+ * 호출한다 - 재시도 없이도 데이터 유실이 생기지 않도록 하기 위함.
  * @param {number} questionId
  * @return {Object} 결과(화면 렌더링용) { question_text, question_type,
  *                    total_responses, correct_count, accuracy_rate,
@@ -217,13 +217,16 @@ function finishSurvey(questionId) {
     result.accuracy_rate = null;
     result.answer_distribution = null;
     result.opinion_raw = answers;
-    if (answers.length === 0) {
+    // 정책: AI_MODE가 꺼져 있으면 AI 호출 자체를 시도하지 않는다(쿼터 낭비 방지).
+    // ai_enabled는 화면에서 "AI 꺼짐"과 "AI 호출 실패"를 구분해 보여주는 데 쓰인다.
+    result.ai_enabled = isAiEnabled();
+    if (answers.length === 0 || !result.ai_enabled) {
       result.opinion_summary = null;
     } else {
       try {
         result.opinion_summary = callAI_(buildOpinionPrompt_(answers));
       } catch (err) {
-        // Gemini 실패 시 요약 없이 원본 답변만 남긴다(원자성 보장 - 재시도 불필요)
+        // AI 호출 실패 시 요약 없이 원본 답변만 남긴다(원자성 보장 - 재시도 불필요)
         result.opinion_summary = null;
       }
     }
@@ -291,37 +294,44 @@ function buildOpinionPrompt_(answers) {
     answers.map(function (a, i) { return (i + 1) + '. ' + a; }).join('\n');
 }
 
+// AI 모델 이름 - 기능별로 모델을 바꾸고 싶으면 이 두 상수만 고치면 된다.
+var AI_MODEL_DEFAULT = 'gpt-4.1-mini'; // 저비용·고빈도: 강의자료 요약, 의견형 설문 요약 등
+var AI_MODEL_STRONG  = 'gpt-5';        // 품질 우선·저빈도: 이해도 보고서 등 정교한 분석이 필요한 기능
+
 /**
  * AI 호출 단일 창구(CLAUDE.md 규칙: AI 호출은 반드시 이 함수를 거친다).
- * 나중에 모델·엔드포인트를 바꾸더라도 이 함수 안만 고치면 된다.
+ * 나중에 엔드포인트를 바꾸더라도 이 함수 안만 고치면 된다.
  * API 키는 자체 스크립트 속성이 아니라 배포엔진에서 가져온다.
  * @param {string} prompt
+ * @param {string} [model] 생략 시 AI_MODEL_DEFAULT 사용(위 상수 중 하나를 넘겨서 기능별로 다른 모델 지정 가능)
  * @return {string} 응답 텍스트
  */
-function callAI_(prompt) {
-  var apiKey = PublishEngine.getSecret('GEMINI_KEY');
-  if (!apiKey) throw new Error('GEMINI_KEY가 설정되어 있지 않습니다.');
+function callAI_(prompt, model) {
+  var apiKey = PublishEngine.getSecret('OPENAI_KEY');
+  if (!apiKey) throw new Error('OPENAI_KEY가 설정되어 있지 않습니다.');
 
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + encodeURIComponent(apiKey);
-  var res = UrlFetchApp.fetch(url, {
+  var res = UrlFetchApp.fetch('https://api.openai.com/v1/chat/completions', {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    headers: { Authorization: 'Bearer ' + apiKey },
+    payload: JSON.stringify({
+      model: model || AI_MODEL_DEFAULT,
+      messages: [{ role: 'user', content: prompt }]
+    }),
     muteHttpExceptions: true
   });
 
   if (res.getResponseCode() !== 200) {
     // 상세 원인(할당량 초과 등)은 로그로만 남기고, 호출자에게는 상태코드만 전달한다.
-    Logger.log('Gemini API 오류 응답: %s', res.getContentText());
-    throw new Error('Gemini API 오류: ' + res.getResponseCode());
+    Logger.log('OpenAI API 오류 응답: %s', res.getContentText());
+    throw new Error('OpenAI API 오류: ' + res.getResponseCode());
   }
 
   var data = JSON.parse(res.getContentText());
-  var text = data && data.candidates && data.candidates[0] &&
-    data.candidates[0].content && data.candidates[0].content.parts &&
-    data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text;
+  var text = data && data.choices && data.choices[0] &&
+    data.choices[0].message && data.choices[0].message.content;
 
-  if (!text) throw new Error('Gemini 응답에서 텍스트를 찾을 수 없습니다.');
+  if (!text) throw new Error('OpenAI 응답에서 텍스트를 찾을 수 없습니다.');
   return text.trim();
 }
 

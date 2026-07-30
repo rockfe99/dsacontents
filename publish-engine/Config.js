@@ -8,7 +8,7 @@
  *
  *  [스크립트 속성 등록]  프로젝트 설정 > 스크립트 속성에 아래 키 등록:
  *    공용: PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL, AI_SERVER_URL, AI_MODE
- *    민감: GEMINI_KEY, SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
+ *    민감: OPENAI_KEY, SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
  *  또는 setAllProperties()를 한 번 실행해 일괄 등록.
  *
  *  [AI_MODE]  관리자가 AI 활용 기능(시험문제 생성·가상질문 생성·강의자료 평가)을
@@ -35,7 +35,7 @@ const PUBLIC_KEYS = [
 
 /** 민감 설정 키(API 키 등). getSecret()로만, 등록된 키만 반환. */
 const SECRET_KEYS = [
-  'GEMINI_KEY',         // Gemini API 키
+  'OPENAI_KEY',         // OpenAI API 키
   'SUPABASE_URL',       // Supabase 프로젝트 URL
   'SUPABASE_KEY',       // Supabase API 키
   'AI_SERVER_KEY'       // ai-server 호출 인증용 공유 비밀키(X-API-Key 헤더)
@@ -118,4 +118,3 @@ function checkSettings() {
   });
   Logger.log(lines.join('\n'));
 }
-
