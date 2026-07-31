@@ -22,7 +22,7 @@ app = FastAPI(title="dsacontents ai-server")
 @app.get("/")
 def health_check():
     """Cloud Run 배포 확인용 - AI 연동과 무관하게 서버 실행 여부만 확인한다."""
-    return "ai-server가 정상적으로 배포되어 실행 중입니다. (v2 - 자동배포 확인용)"
+    return "ai-server가 정상적으로 배포되어 실행 중입니다. (v3. 수정git push-빌드-자동배포까지)"
 
 
 class ExamRequest(BaseModel):
