@@ -99,6 +99,14 @@
   .btn:hover { background: var(--blue-050); border-color: var(--blue-500); }
   .btn-strong { background: var(--blue-600); color: var(--white); border-color: var(--blue-600); }
   .btn-strong:hover { background: var(--blue-900); border-color: var(--blue-900); }
+  .btn-light { background: var(--blue-500); color: var(--white); border-color: var(--blue-500); }
+  .btn-light:hover { background: var(--blue-600); border-color: var(--blue-600); }
+
+  .ai-badge {
+    display: inline-block; font-size: 8px; font-weight: 700; letter-spacing: 0.02em;
+    color: var(--blue-600); background: var(--blue-050); border-radius: 3px;
+    padding: 1px 3px; margin-right: 4px; vertical-align: middle;
+  }
 
   .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
@@ -545,10 +553,10 @@
         '<td data-label="뷰어 URL">' + renderUrlCell(row.viewerUrl) + '</td>' +
         '<td data-label="기능"><div class="actions">' +
           '<button class="btn btn-strong" onclick="editDeploy(\'' + esc(row.keyword) + '\')">배포 수정</button>' +
-          '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')">시험문제 생성</button>' +
-          '<button class="btn" onclick="makeVirtualQuestions(\'' + esc(row.keyword) + '\')">가상질문 생성</button>' +
-          '<button class="btn" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
-          '<button class="btn" onclick="evaluateMaterial(\'' + esc(row.keyword) + '\')">강의자료 평가</button>' +
+          '<button class="btn btn-light" onclick="openSurvey(\'' + esc(row.keyword) + '\')">실시간 설문</button>' +
+          '<button class="btn" onclick="makeQuiz(\'' + esc(row.keyword) + '\')"><span class="ai-badge">AI</span>시험문제 생성</button>' +
+          '<button class="btn" onclick="makeVirtualQuestions(\'' + esc(row.keyword) + '\')"><span class="ai-badge">AI</span>가상질문 생성</button>' +
+          '<button class="btn" onclick="evaluateMaterial(\'' + esc(row.keyword) + '\')"><span class="ai-badge">AI</span>강의자료 평가</button>' +
         '</div></td>' +
       '</tr>';
     }).join('');
@@ -870,16 +878,11 @@
     var html = '<div style="font-weight:600;margin-bottom:10px;">' + esc(r.question_text) + '</div>';
 
     if (r.question_type === 'opinion') {
-      if (!r.total_responses) {
-        html += '<div class="hint">제출된 의견이 없습니다.</div>';
-      } else if (r.opinion_summary) {
+      if (r.opinion_summary) {
         html += '<div class="hint" style="margin-bottom:6px;">AI 요약</div>' +
           '<div class="opinion-box">' + esc(r.opinion_summary) + '</div>';
       } else {
-        var rawNotice = r.ai_enabled
-          ? 'AI 요약에 실패하여 학생 답변 원문을 표시합니다.'
-          : 'AI 기능이 꺼져 있어 학생 답변 원문을 표시합니다.';
-        html += '<div class="hint' + (r.ai_enabled ? ' hint-error' : '') + '" style="margin-bottom:6px;">' + rawNotice + '</div>' +
+        html += '<div class="hint hint-error" style="margin-bottom:6px;">AI 서버 접근 불가로 답변 원문을 표시합니다.</div>' +
           '<ol style="padding-left:20px;">' +
           (r.opinion_raw || []).map(function (a) { return '<li>' + esc(a) + '</li>'; }).join('') +
           '</ol>';

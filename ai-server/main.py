@@ -19,6 +19,12 @@ AI_SERVER_KEY = os.environ.get("AI_SERVER_KEY", "")
 app = FastAPI(title="dsacontents ai-server")
 
 
+@app.get("/")
+def health_check():
+    """Cloud Run 배포 확인용 - AI 연동과 무관하게 서버 실행 여부만 확인한다."""
+    return "ai-server가 정상적으로 배포되어 실행 중입니다."
+
+
 class ExamRequest(BaseModel):
     keyword: str
     question_type: Literal["multiple_choice", "short_answer"]

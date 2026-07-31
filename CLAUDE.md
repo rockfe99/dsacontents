@@ -167,19 +167,27 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
   (GAS는 `Logger.log()`, ai-server는 서버 로그). AI 기능이 실패해도 배포·목차
   추출 등 나머지 흐름은 그대로 진행되어야 한다(AI 기능은 부가 기능 취급).
 
-### ⚠️ 정책 변경 이전 구현 - 마이그레이션 필요
-- **실시간 설문 - 의견형 결과 요약**(`finishSurvey()` → `buildOpinionPrompt_()` →
-  `callAI_()`, `system-b-dashboard/Code.js`)은 아직 새 정책 이전 방식대로 GAS에서
-  OpenAI를 직접 호출한다(`OPENAI_KEY` 스크립트 속성, 모델은 `AI_MODEL_DEFAULT`/
-  `AI_MODEL_STRONG` 상수). AI_MODE 확인(`isAiEnabled()`)은 반영되어 꺼져 있으면
-  호출을 시도하지 않지만, **정책상으로는 이 로직 자체를 ai-server 쪽 엔드포인트로
-  옮기고 GAS의 `callAI_()`/`OPENAI_KEY` 직접 호출은 걷어내야 한다** — 아직 미완료.
+### 마이그레이션 완료 - 실시간 설문 의견형 결과 요약
+- `finishSurvey()` → `summarizeOpinions_()`(`system-b-dashboard/Code.js`)로
+  전환 완료. GAS가 OpenAI를 직접 호출하던 `buildOpinionPrompt_()`/`callAI_()`
+  (`OPENAI_KEY` 스크립트 속성 직접 사용)는 제거됐고, 이제 시험문제 생성과
+  동일한 패턴으로 ai-server의 `POST /opinion-summary`를 `UrlFetchApp`으로
+  호출한다(`AI_SERVER_URL`/`AI_SERVER_KEY` 사용). **다만 ai-server 쪽
+  `/opinion-summary` 엔드포인트 자체는 아직 구현 전이다** — GAS 쪽만
+  선반영된 상태라, 서버 배포 전까지는 호출이 항상 실패로 처리돼 아래 흡수
+  경로를 탄다.
+- 이 기능은 다른 AI 기능과 달리 실패 시 "AI 크레딧 필요" 모달을 띄우지
+  않는다. 이미 수집된 학생 응답은 요약 성공 여부와 무관하게 항상 확인할 수
+  있어야 하므로, `summarizeOpinions_()`가 `null`을 반환하면(AI_MODE 꺼짐·
+  서버 설정 누락·요청 실패·응답 없음 등 원인 불문) 화면 상단에 "AI 서버
+  접근 불가로 답변 원문을 표시합니다" 안내와 함께 학생 답변 원문 전체를
+  그대로 나열한다(`system-b-dashboard/Dashboard.html`의 `renderSurveyResult()`).
 
 ### 기능별 ai-server 엔드포인트 현황
 | 기능 | 상태 | 엔드포인트/경로 | 모델 제공자 |
 |---|---|---|---|
 | 시험문제 생성 | 구현됨 | `POST /exam-questions` (`ai-server/main.py`) | Gemini(`gemini-2.0-flash`, LangChain) — UI의 ChatGPT/Claude 옵션은 아직 비활성화 |
-| 실시간 설문 - 의견형 결과 요약 | 구현됨(마이그레이션 필요) | GAS `callAI_()` 직접 호출(OpenAI) | OpenAI(`gpt-4.1-mini`) |
+| 실시간 설문 - 의견형 결과 요약 | GAS 호출 코드는 구현됨, ai-server 엔드포인트는 미구현 | `POST /opinion-summary` (예정, 아직 `ai-server/main.py`에 없음) | 미정 |
 | 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
 | 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
 | 가상질문 생성 / 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | 미정 |
@@ -223,7 +231,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
    그 점을 전제로 코드를 짜고, 필요한 배포 설정을 주석/문서로 안내.
 8. 함수/변수명은 명확하게. 주석은 한국어로, 핵심 로직 위주로 간결하게.
 9. 터미널에서의 질문과 설명은 모두 한국어로 한다.
-10. **AI API 호출(Gemini·`callAI_()`, 랭체인 등) 관련 기능은 실패를 항상 화면에서
+10. **AI API 호출(ai-server 경유, Gemini·랭체인 등) 관련 기능은 실패를 항상 화면에서
     흡수한다.** 호출 불가·오류·타임아웃·사용량(쿼터) 소모로 인한 거부 등 원인을
     막론하고 사용자에게는 **"현재 AI 기능을 사용할 수 없습니다"** 같은 고정
     안내만 보여주고, 나머지 기능(배포·목차 추출·설문 등)은 영향 없이 계속
