@@ -187,7 +187,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 | 기능 | 상태 | 엔드포인트/경로 | 모델 제공자 |
 |---|---|---|---|
 | 시험문제 생성 | 구현됨 | `POST /exam-questions` (`ai-server/main.py`) | Gemini(`gemini-2.0-flash`, LangChain) — UI의 ChatGPT/Claude 옵션은 아직 비활성화 |
-| 실시간 설문 - 의견형 결과 요약 | GAS 호출 코드는 구현됨, ai-server 엔드포인트는 미구현 | `POST /opinion-summary` (예정, 아직 `ai-server/main.py`에 없음) | 미정 |
+| 실시간 설문 - 의견형 결과 요약 | GAS 호출 코드는 구현됨, ai-server 엔드포인트는 미구현 | `POST /opinion-summary` (예정, 아직 `ai-server/main.py`에 없음) | OpenAI(모델명 미정) — `OPENAI_KEY`를 Cloud Run 환경변수로 등록·배포까지 완료(2026-07-31), `os.environ.get("OPENAI_KEY")`로 읽는 코드만 아직 미구현 |
 | 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
 | 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
 | 가상질문 생성 / 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | 미정 |
@@ -382,6 +382,48 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   안 바뀐다"는 문제를 실제로 겪고 배포 관리에서 새 버전으로 갱신해 해결함.
 - `publish-engine`의 `VIEWER_URL` 스크립트 속성에 이 배포 URL을 등록 완료 →
   시스템 B의 URL복사/뷰어열기 버튼 정상 동작 확인됨.
+
+### ai-server (AI 전용 API 서버) — Cloud Run 배포 경로 확인 및 기본 배선 완료
+- Cloud Run 서비스 `dsacontents-ai-api`(리전 `asia-northeast3`)를 GitHub
+  저장소 `rockfe99/dsacontents`(소스 하위 디렉터리 `ai-server`)와 연결해
+  생성. 저장소가 `ai-server` 외에도 여러 GAS 프로젝트 폴더가 같이 있는
+  모노레포라서 초기 설정 과정에서 다음 문제들을 겪고 해결함(상세 원인·해결
+  절차는 `ai-server/DEPLOY.md`에 정리):
+  - 빌드 소스 디렉터리가 저장소 루트를 보고 있어 `Dockerfile`을 못 찾아
+    실패 → 트리거의 Dockerfile 디렉터리를 `ai-server`로 지정.
+  - "Dockerfile" 빌드 유형은 이미지를 Artifact Registry에 **빌드+푸시까지만**
+    하고 Cloud Run에 실제로 배포하는 단계가 빠져 있어, 빌드가 성공해도 새
+    리비전이 자동으로 생기지 않음(서비스 URL이 계속 숨겨짐, 버전 탭엔
+    `gcr.io/cloudrun/placeholder` 자리표시자만 존재) → 빌드·푸시·
+    `gcloud run deploy`를 전부 명시하는 **`ai-server/cloudbuild.yaml`**을
+    작성하고, 트리거 유형을 "Cloud Build 구성 파일"로 바꿔 이 파일을
+    가리키도록 재구성. 트리거의 커스텀 대체 변수(`_AR_HOSTNAME` 등)는 유형을
+    바꾸는 과정에서 값이 초기화되는 문제가 있어, `cloudbuild.yaml` 안에서는
+    그 변수 대신 Artifact Registry 경로 등 실제 값을 직접 하드코딩함.
+  - 이후로는 `ai-server`에 커밋을 GitHub main 브랜치로 push하기만 하면
+    빌드→배포까지 사람 개입 없이 자동으로 끝나는 것까지 실기기로 확인됨.
+- `main.py`에 AI 연동과 무관하게 항상 고정 문자열을 반환하는 헬스체크
+  엔드포인트(`GET /`)를 추가해, 배포 경로 자체의 성공 여부와 AI 연동
+  성공 여부를 분리해서 확인할 수 있게 함.
+- Cloud Run 서비스 환경변수에 `OPENAI_KEY` 등록 완료(2026-07-31, 새 버전으로
+  배포까지 완료) — 기존 `GEMINI_KEY`/`SUPABASE_URL`/`SUPABASE_KEY`/
+  `AI_SERVER_KEY`와 동일한 방식(Cloud Run 환경변수, 코드에서는
+  `os.environ.get("OPENAI_KEY")`로 읽을 예정). 용도는 실시간 설문 의견형
+  결과 요약(`POST /opinion-summary`, 아직 엔드포인트 코드는 미구현)에서
+  OpenAI를 모델 제공자로 쓰기 위함 — 등록만 먼저 해두고 실제 연동 코드는
+  이후 작업으로 미룸. `ai-server/.env.example`에도 로컬 개발용 자리표시자
+  항목을 같이 추가해둠.
+- `system-b-dashboard`가 GAS에서 OpenAI를 직접 호출하던 `callAI_()`/
+  `buildOpinionPrompt_()`를 걷어내고(위 "마이그레이션 완료" 항목 참고),
+  `publish-engine/Config.js`의 `SECRET_KEYS`에서도 `OPENAI_KEY`를 제거함 —
+  이제 이 키는 GAS 스크립트 속성이 아니라 ai-server의 Cloud Run 환경변수
+  에만 존재한다(GAS 쪽 `publish-engine` 프로젝트의 스크립트 속성에 남아있던
+  `OPENAI_KEY` 등 API 키 값은 사용자가 직접 전부 삭제 완료).
+- `system-b-dashboard/Dashboard.html`에 AI_MODE 상태를 한눈에 보여주는
+  배지를 추가함 — 강의 목록 헤더의 "기능" 열 옆에 `isAiEnabled()` 결과에
+  따라 `AI Mode : ON`(파란색 계열, `--blue-050`/`--blue-700`) 또는
+  `AI Mode : OFF`(빨간색 계열)를 표시(`.ai-mode-badge` 클래스, 페이지 로드
+  시 `checkAiEnabled_()`로 한 번 확인).
 
 ### 미착수
 - `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
