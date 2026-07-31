@@ -8,7 +8,7 @@
  *
  *  [스크립트 속성 등록]  프로젝트 설정 > 스크립트 속성에 아래 키 등록:
  *    공용: PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL, AI_SERVER_URL, AI_MODE
- *    민감: OPENAI_KEY, SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
+ *    민감: SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
  *  또는 setAllProperties()를 한 번 실행해 일괄 등록.
  *
  *  [AI_MODE]  관리자가 AI 활용 기능(시험문제 생성·가상질문 생성·강의자료 평가)을
@@ -33,9 +33,10 @@ const PUBLIC_KEYS = [
   'AI_MODE'             // AI 활용 기능 사용 가능 여부('true'만 사용 가능, 그 외는 꺼짐)
 ];
 
-/** 민감 설정 키(API 키 등). getSecret()로만, 등록된 키만 반환. */
+/** 민감 설정 키(API 키 등). getSecret()로만, 등록된 키만 반환.
+ * 모델 제공자 API 키(OpenAI 등)는 GAS가 아니라 ai-server의 Cloud Run
+ * 환경변수에 등록해서 쓴다 — GAS는 그 키를 직접 다루지 않는다. */
 const SECRET_KEYS = [
-  'OPENAI_KEY',         // OpenAI API 키
   'SUPABASE_URL',       // Supabase 프로젝트 URL
   'SUPABASE_KEY',       // Supabase API 키
   'AI_SERVER_KEY'       // ai-server 호출 인증용 공유 비밀키(X-API-Key 헤더)
