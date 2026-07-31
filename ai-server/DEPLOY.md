@@ -45,57 +45,47 @@ cd ai-server
 `ai-server` 변경분을 커밋한 뒤, Cloud Run이 감시 중인 브랜치(`main`)로
 `https://github.com/rockfe99/dsacontents.git`에 push한다.
 
-### 3. Cloud Build 실행 확인
-Google Cloud 콘솔 → **Cloud Build → 기록**에서 방금 push로 트리거된 빌드가
-시작되었는지 확인한다. 이 저장소는 `ai-server` 외에도 여러 GAS 프로젝트
-폴더가 같이 있는 모노레포라서, 트리거의 빌드 소스 구성이 저장소 루트를
-보게 되면 다음 에러로 즉시(수 초 만에) 실패한다:
+### 3. Cloud Build 트리거 구성 (cloudbuild.yaml 사용)
+이 저장소는 `ai-server` 외에도 여러 GAS 프로젝트 폴더가 같이 있는
+모노레포다. 트리거가 "Dockerfile" 빌드 유형으로 저장소 루트를 기준으로
+동작하면 다음 에러로 즉시(수 초 만에) 실패하고,
 ```
 unable to prepare context: unable to evaluate symlinks in Dockerfile path:
 lstat /workspace/Dockerfile: no such file or directory
 ```
-**Cloud Build → 트리거 → 해당 트리거 수정**에서 다음을 확인/지정한다
-(자동 감지 상태에서는 아래 입력칸 자체가 안 보이므로, 유형을 **Dockerfile**로
-먼저 바꿔야 나타난다):
-- **Dockerfile 디렉터리**: `ai-server`
-- **Dockerfile 이름**: `Dockerfile` (기본값 그대로)
-- **이미지 이름**: 이 필드는 트리거의 커스텀 대체 변수(`${_AR_HOSTNAME}` 등)를
-  못 받고 Cloud Build 기본 변수(`$PROJECT_ID`, `$COMMIT_SHA` 등)만 허용한다.
-  그래서 `${_AR_HOSTNAME}/${_AR_PROJECT_ID}/...` 형태가 아니라, Cloud Run
-  서비스 화면(개요)의 대체 변수 값을 그대로 문자열로 풀어써야 한다. 예:
-  ```
-  asia-northeast3-docker.pkg.dev/<프로젝트ID>/cloud-run-source-deploy/<서비스명>:$COMMIT_SHA
-  ```
-  (마지막 `:$COMMIT_SHA` 태그를 빼면 "Docker 태그가 누락되었습니다" 오류가
-  난다. 입력칸 아래 회색으로 뜨는 "지원되는 변수: $PROJECT_ID, ..." 문구는
-  에러가 아니라 이 필드에 쓸 수 있는 변수 목록을 알려주는 고정 안내다.)
+디렉터리를 `ai-server`로 고쳐도 "Dockerfile" 빌드 유형 자체는 이미지를
+빌드해서 Artifact Registry에 **푸시까지만** 하고, Cloud Run에 실제로
+배포하는 단계(`gcloud run deploy`)가 빠져 있어서 빌드는 성공해도 새
+리비전이 자동으로 생기지 않았다(URL이 계속 `(첫 번째 빌드가 성공할
+때까지 숨겨짐)`으로 남고, 버전 탭에는 서비스 최초 생성 시 깔린
+`gcr.io/cloudrun/placeholder` 자리표시자 리비전만 보임).
 
-빌드가 실패하면 그 외 원인(예: `requirements.txt` 설치 실패)은 빌드 로그에서
-직접 확인한다.
+그래서 빌드·푸시·배포 3단계를 전부 명시하는 `ai-server/cloudbuild.yaml`을
+직접 작성해 사용한다. 트리거의 "대체 변수"(`_AR_HOSTNAME` 등)는 빌드
+유형을 바꾸는 과정에서 값이 비워지는 문제가 있었으므로, 그 변수들에
+의존하지 않고 실제 값(Artifact Registry 경로, 서비스명, 리전)을
+`cloudbuild.yaml` 안에 직접 하드코딩했다 — 이 값들은 프로젝트/서비스가
+바뀌지 않는 한 고정이므로 하드코딩이 더 안전하다.
 
-### 4. Cloud Run 리비전 확인 (자동 배포 연결이 끊겨 있을 수 있음)
+**Cloud Build → 트리거 → 해당 트리거 수정**에서:
+- **구성 → 유형**: `Cloud Build 구성 파일(YAML 또는 JSON)`
+- **위치**: 저장소 선택 유지, 파일 경로를 `ai-server/cloudbuild.yaml`로 지정
+  (기본값 `/cloudbuild.yaml`을 그대로 두면 파일을 못 찾는다)
+
+저장 후 push하면 빌드 로그에 **Step #0(빌드) → Step #1(푸시) →
+Step #2(gcloud run deploy)** 세 단계가 순서대로 나와야 정상이다.
+
+Step #2(배포)에서 권한 오류(`PERMISSION_DENIED` 등)가 나면, 트리거의
+서비스 계정(빌드 로그 상단 또는 트리거 설정의 "서비스 계정" 필드에 표시,
+보통 `<프로젝트번호>-compute@developer.gserviceaccount.com`)에 IAM에서
+**Cloud Run 관리자**(`roles/run.admin`)와 **서비스 계정 사용자**
+(`roles/iam.serviceAccountUser`) 역할을 추가해야 한다.
+
+### 4. Cloud Run 리비전 확인
 Google Cloud 콘솔 → **Cloud Run → 해당 서비스 → 버전** 탭에서 방금 빌드로부터
-새 리비전이 생성되고, 그 리비전이 **트래픽 100%로 서비스 중** 상태인지 확인한다.
-
-**주의**: Cloud Build 트리거가 성공해도, 그 트리거를 raw 화면(위 3번)에서 직접
-편집한 경우 "빌드 성공 시 Cloud Run에 자동 배포"까지 이어지는 연결이 살아있지
-않을 수 있다. 이 경우 서비스 상단 URL이 계속 `(첫 번째 빌드가 성공할 때까지
-숨겨짐)`으로 표시되고, 버전 탭에는 `gcr.io/cloudrun/placeholder` 이미지로 된
-리비전(빌드/소스 정보 없음, 서비스 최초 생성 시 자동으로 깔린 자리표시자)만
-보인다. 확인 방법: 리비전 상세의 **이미지** 필드가 `gcr.io/cloudrun/placeholder`
-로 시작하면 아직 우리 코드가 배포된 적이 없다는 뜻이다.
-
-이 경우 두 가지 방법이 있다.
-- **즉시 확인용(수동 1회 배포)**: 서비스 화면 상단 **"새 버전 수정 및 배포"** →
-  컨테이너 이미지 선택에서 Artifact Registry의 `cloud-run-source-deploy`
-  저장소 → 방금 빌드된 이미지(커밋 해시 태그)를 직접 선택해 배포한다. 이후
-  URL이 나타난다.
-- **근본 해결(자동 배포 연결 복구)**: 서비스 화면 상단 **"저장소 설정 수정"**
-  버튼(Cloud Build 트리거 화면이 아니라 Cloud Run 서비스 화면에 있음)으로
-  들어가 저장소·브랜치·빌드 유형·소스 디렉터리(`ai-server`)를 다시 지정하고
-  저장한다 — 이 경로로 재설정해야 "빌드 성공 → 자동 배포"까지 Cloud Run이
-  다시 관리해준다. 이후로는 GitHub에 push만 하면 사람 개입 없이 새 리비전이
-  자동으로 뜬다.
+새 리비전이 **자동으로** 생성되고, 트래픽 100%로 서비스 중인지 확인한다.
+리비전 상세의 **이미지** 필드가 `gcr.io/cloudrun/placeholder`로 시작한다면
+아직 우리 코드가 배포된 적이 없다는 뜻이니 3번부터 다시 점검한다.
 
 ### 5. 서비스 URL로 응답 확인
 Cloud Run 서비스 상세 화면 상단에 표시된 URL(`https://<서비스명>-<해시>-<리전>.a.run.app`

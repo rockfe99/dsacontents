@@ -3,7 +3,7 @@ steps:
     args:
       - build
       - '-t'
-      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+      - 'asia-northeast3-docker.pkg.dev/project-1b9e70ea-a8fc-4cf6-b12/cloud-run-source-deploy/dsacontents-ai-api:$COMMIT_SHA'
       - '-f'
       - 'ai-server/Dockerfile'
       - 'ai-server'
@@ -11,21 +11,21 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - push
-      - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+      - 'asia-northeast3-docker.pkg.dev/project-1b9e70ea-a8fc-4cf6-b12/cloud-run-source-deploy/dsacontents-ai-api:$COMMIT_SHA'
 
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - run
       - deploy
-      - '${_SERVICE_NAME}'
-      - '--image=${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
-      - '--region=${_DEPLOY_REGION}'
-      - '--platform=${_PLATFORM}'
+      - dsacontents-ai-api
+      - '--image=asia-northeast3-docker.pkg.dev/project-1b9e70ea-a8fc-4cf6-b12/cloud-run-source-deploy/dsacontents-ai-api:$COMMIT_SHA'
+      - '--region=asia-northeast3'
+      - '--platform=managed'
       - '--quiet'
 
 images:
-  - '${_AR_HOSTNAME}/${_AR_PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:$COMMIT_SHA'
+  - 'asia-northeast3-docker.pkg.dev/project-1b9e70ea-a8fc-4cf6-b12/cloud-run-source-deploy/dsacontents-ai-api:$COMMIT_SHA'
 
 options:
   logging: CLOUD_LOGGING_ONLY
