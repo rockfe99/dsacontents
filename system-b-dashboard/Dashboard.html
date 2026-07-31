@@ -107,11 +107,12 @@
     color: var(--blue-600); background: var(--blue-050); border-radius: 3px;
     padding: 1px 3px; margin-right: 4px; vertical-align: middle;
   }
-  .ai-mode-off {
+  .ai-mode-badge {
     display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 10px;
-    background: #fdecea; color: #c0392b; font-size: 10.5px; font-weight: 700;
-    letter-spacing: 0.02em; vertical-align: middle;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em; vertical-align: middle;
   }
+  .ai-mode-badge.on { background: var(--blue-050); color: var(--blue-700); }
+  .ai-mode-badge.off { background: #fdecea; color: #c0392b; }
 
   .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
@@ -293,7 +294,7 @@
             <th class="col-title">강의 제목</th>
             <th class="col-time">최종 배포</th>
             <th class="col-url">뷰어 URL</th>
-            <th class="col-act">기능<span class="ai-mode-off" id="aiModeOffBadge" style="display:none;">AI Mode : OFF</span></th>
+            <th class="col-act">기능<span class="ai-mode-badge" id="aiModeBadge" style="display:none;"></span></th>
           </tr>
         </thead>
         <tbody id="lectureList">
@@ -1152,7 +1153,10 @@
   // 초기 로드
   loadList();
   checkAiEnabled_(function (enabled) {
-    document.getElementById('aiModeOffBadge').style.display = enabled ? 'none' : 'inline-block';
+    var badge = document.getElementById('aiModeBadge');
+    badge.textContent = 'AI Mode : ' + (enabled ? 'ON' : 'OFF');
+    badge.className = 'ai-mode-badge ' + (enabled ? 'on' : 'off');
+    badge.style.display = 'inline-block';
   });
 </script>
 </body>
