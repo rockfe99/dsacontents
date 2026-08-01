@@ -78,13 +78,3 @@ function getSurveyQuestion(accessKey) {
 function submitSurveyAnswer(questionId, answerText) {
   return PublishEngine.submitSurveyAnswer(questionId, String(answerText || '').trim());
 }
-
-/**
- * 진단용(임시) - 이 프로젝트에 script.external_request 권한을 승인시키기 위한 함수.
- * getSurveyQuestion과 달리 try/catch로 감싸지 않아, 편집기에서 직접 실행하면
- * 권한 부족 예외가 그대로 올라와 "권한 검토" 승인 팝업이 뜬다. 승인 후 이 함수는
- * 지워도 된다.
- */
-function authorizeSurveyScopes_TEMP() {
-  return PublishEngine.getSurveyByAccessKey('AUTH-CHECK');
-}

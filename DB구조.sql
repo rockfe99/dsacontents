@@ -36,7 +36,7 @@
 -- ============================================================
 create table survey_temp_questions (
   id              bigserial primary key,
-  access_key      varchar(8)  not null,        -- 학생 배포용 고유키 (영대문자+숫자 4자리, 헷갈리는 O/I/0/1 제외)
+  access_key      varchar(8)  not null,        -- 학생 배포용 고유키 (영소문자+숫자 4자리, 헷갈리는 o/l/0/1 제외)
   lecture_keyword text        not null,         -- 강의 키워드 (평가·검색 축)
   question_text   text        not null,
   question_type   varchar(20) not null
@@ -240,7 +240,7 @@ $$;
 -- [출제] 강사가 "학생들에게 공개" 클릭
 --   0) DELETE FROM survey_temp_questions WHERE started_at < now() - interval '1 day';
 --      (하루 이상 지난 미완료분 정리 - 임시답변은 cascade로 함께 삭제)
---   1) 영문대문자+숫자 고유키 생성 → INSERT INTO survey_temp_questions (...)
+--   1) 영문소문자+숫자 고유키 생성 → INSERT INTO survey_temp_questions (...)
 --      (활성 키 충돌 시 새 키로 재시도, uq_survey_active_key가 막아줌)
 --
 -- [응답] 학생이 고유키 입력 → 문제 조회

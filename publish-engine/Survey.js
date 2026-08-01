@@ -7,7 +7,8 @@
  *  직접 갖지 않고, 이 파일이 대신 REST API를 호출한다.
  *
  *  AI 호출(의견형 요약)은 여기서 하지 않는다 - CLAUDE.md 규칙상 AI 호출은
- *  시스템 B의 callAI_()에서만 하고, 이 파일은 순수 DB 접근만 담당한다.
+ *  전부 ai-server 경유이고, 시스템 B의 summarizeOpinions_()가 그 호출을
+ *  맡는다. 이 파일은 순수 DB 접근만 담당한다.
  *
  *  [사전 준비] Supabase 프로젝트에 저장소 최상위의 DB구조.sql을 실행해
  *  테이블·인덱스·RLS·함수(submit_survey_answer, finalize_survey)를
@@ -15,8 +16,9 @@
  * ============================================================
  */
 
-// 숫자와 헷갈리는 O, I와 문자와 헷갈리는 0, 1은 제외한다(32자)
-var SURVEY_ACCESS_KEY_CHARS_ = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// 영문 소문자+숫자만 조합(시프트 키 없이 입력 가능). o는 0과, l은 1과
+// 헷갈리기 쉬워 제외한다(32자)
+var SURVEY_ACCESS_KEY_CHARS_ = 'abcdefghijkmnpqrstuvwxyz23456789';
 var SURVEY_ACCESS_KEY_LENGTH_ = 4;
 var SURVEY_STALE_HOURS_ = 24;
 
@@ -171,7 +173,7 @@ function deleteSurveyDataForKeyword(lectureKeyword) {
   supabaseRequest_('survey_results?lecture_keyword=eq.' + keyword, 'delete');
 }
 
-/** 영문 대문자+숫자 고유키를 생성한다(헷갈리는 O/I/0/1 제외, 4자리). */
+/** 영문 소문자+숫자 고유키를 생성한다(헷갈리는 o/l/0/1 제외, 4자리). */
 function generateSurveyAccessKey_() {
   var key = '';
   for (var i = 0; i < SURVEY_ACCESS_KEY_LENGTH_; i++) {
