@@ -303,6 +303,10 @@ function summarizeOpinions_(keyword, questionText, answers) {
       throw new Error('AI_SERVER_URL/AI_SERVER_KEY가 설정되어 있지 않다.');
     }
 
+    // 답변 여러 개를 구분자로 이어붙여 하나의 문자열로 만들어 보낸다(프롬프트에
+    // 그대로 넣기 좋은 형태로 - ai-server 쪽에서 다시 합칠 필요 없게).
+    var answersText = answers.join('\n---\n');
+
     var res = UrlFetchApp.fetch(serverUrl + '/opinion-summary', {
       method: 'post',
       contentType: 'application/json',
@@ -310,7 +314,7 @@ function summarizeOpinions_(keyword, questionText, answers) {
       payload: JSON.stringify({
         keyword: keyword,
         question_text: questionText,
-        answers: answers
+        answers_text: answersText
       }),
       muteHttpExceptions: true
     });

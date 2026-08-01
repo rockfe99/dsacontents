@@ -5,16 +5,15 @@ system-b-dashboard(GAS)가 UrlFetchApp으로 이 서버를 호출한다.
 첫 기능: 시험문제 자동생성 (POST /exam-questions)
 """
 
-import os
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
+from auth import verify_api_key
 from chains.exam_generator import generate as generate_exam_questions
+from chains.opinion_summarizer import summarize as summarize_opinions
 from supabase_client import get_slide_text
-
-AI_SERVER_KEY = os.environ.get("AI_SERVER_KEY", "")
 
 app = FastAPI(title="dsacontents ai-server")
 
@@ -32,9 +31,10 @@ class ExamRequest(BaseModel):
     provider: Literal["gemini", "chatgpt", "claude"] = "gemini"
 
 
-def verify_api_key(x_api_key: str = Header(default="")) -> None:
-    if not AI_SERVER_KEY or x_api_key != AI_SERVER_KEY:
-        raise HTTPException(status_code=401, detail="invalid api key")
+class OpinionSummaryRequest(BaseModel):
+    keyword: str
+    question_text: str
+    answers_text: str
 
 
 @app.post("/exam-questions")
@@ -53,3 +53,15 @@ def exam_questions(req: ExamRequest, x_api_key: str = Header(default="")):
         raise HTTPException(status_code=400, detail=str(err))
 
     return {"questions": [q.model_dump() for q in questions]}
+
+
+@app.post("/opinion-summary")
+def opinion_summary(req: OpinionSummaryRequest, x_api_key: str = Header(default="")):
+    verify_api_key(x_api_key)
+
+    try:
+        summary = summarize_opinions(req.question_text, req.answers_text)
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    return {"summary": summary}
