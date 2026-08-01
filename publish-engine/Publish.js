@@ -114,7 +114,7 @@ function lectureExists(keyword) {
  *    범위를 그대로 둔다.
  * 2) 목차데이터 폴더의 키워드.json을 휴지통으로 이동.
  * 3) DB 스프레드시트에서 해당 키워드 행을 삭제(키워드 재사용 가능해짐).
- * 4) 그 키워드로 쌓인 실시간 설문 데이터(survey_questions·survey_results)를
+ * 4) 그 키워드로 쌓인 실시간 설문 데이터(survey_temp_questions·survey_results)를
  *    Supabase에서 전부 삭제(deleteSurveyDataForKeyword) - 키워드 재사용 시
  *    이전 강의의 설문 결과가 새 강의에 섞이지 않도록 함.
  * 5) 그 키워드로 저장된 슬라이드 본문 텍스트(slide_contents)도 Supabase에서

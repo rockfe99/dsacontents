@@ -44,7 +44,7 @@ function createSurveyQuestion(lectureKeyword, questionText, questionType, option
 
   for (var attempt = 0; attempt < 5; attempt++) {
     payload.access_key = generateSurveyAccessKey_();
-    var res = supabaseRequest_('survey_questions', 'post', payload, { 'Prefer': 'return=representation' });
+    var res = supabaseRequest_('survey_temp_questions', 'post', payload, { 'Prefer': 'return=representation' });
 
     if (res.code === 201) {
       return res.body[0];
@@ -65,7 +65,7 @@ function createSurveyQuestion(lectureKeyword, questionText, questionType, option
 function getSurveyByAccessKey(accessKey) {
   var query = 'access_key=eq.' + encodeURIComponent(accessKey) +
     '&status=eq.active&select=id,lecture_keyword,question_text,question_type,options';
-  var res = supabaseRequest_('survey_questions?' + query, 'get');
+  var res = supabaseRequest_('survey_temp_questions?' + query, 'get');
   if (res.code !== 200 || !res.body || !res.body.length) return null;
   return res.body[0];
 }
@@ -94,7 +94,7 @@ function submitSurveyAnswer(questionId, answerText) {
  * @return {Object} { id, lecture_keyword, question_text, question_type, options, correct_answers }
  */
 function endSurveyQuestion(questionId) {
-  var res = supabaseRequest_('survey_questions?id=eq.' + questionId, 'patch', {
+  var res = supabaseRequest_('survey_temp_questions?id=eq.' + questionId, 'patch', {
     status: 'ended',
     ended_at: new Date().toISOString()
   }, { 'Prefer': 'return=representation' });
@@ -144,7 +144,7 @@ function finalizeSurveyResult(questionId, result) {
  * @param {number} questionId
  */
 function discardSurveyQuestion(questionId) {
-  var res = supabaseRequest_('survey_questions?id=eq.' + questionId, 'delete');
+  var res = supabaseRequest_('survey_temp_questions?id=eq.' + questionId, 'delete');
   if (res.code !== 200 && res.code !== 204) {
     throw new Error('설문 결과 폐기 실패: ' + res.code + ' ' + JSON.stringify(res.body));
   }
@@ -153,7 +153,7 @@ function discardSurveyQuestion(questionId) {
 /** 하루 이상 지난 미완료(active/ended 무관) 설문 문제를 지운다. 임시답변은 cascade 삭제. */
 function cleanupStaleSurveys_() {
   var cutoff = new Date(Date.now() - SURVEY_STALE_HOURS_ * 3600 * 1000).toISOString();
-  supabaseRequest_('survey_questions?started_at=lt.' + encodeURIComponent(cutoff), 'delete');
+  supabaseRequest_('survey_temp_questions?started_at=lt.' + encodeURIComponent(cutoff), 'delete');
 }
 
 /**
@@ -166,8 +166,8 @@ function cleanupStaleSurveys_() {
  */
 function deleteSurveyDataForKeyword(lectureKeyword) {
   var keyword = encodeURIComponent(lectureKeyword);
-  // survey_questions 삭제 시 survey_temp_answers는 on delete cascade로 함께 삭제됨
-  supabaseRequest_('survey_questions?lecture_keyword=eq.' + keyword, 'delete');
+  // survey_temp_questions 삭제 시 survey_temp_answers는 on delete cascade로 함께 삭제됨
+  supabaseRequest_('survey_temp_questions?lecture_keyword=eq.' + keyword, 'delete');
   supabaseRequest_('survey_results?lecture_keyword=eq.' + keyword, 'delete');
 }
 
@@ -187,7 +187,7 @@ function isDuplicateKeyError_(res) {
 
 /**
  * Supabase REST(PostgREST)에 요청을 보낸다. service_role 키는 이 함수 안에서만 다룬다.
- * @param {string} path    'survey_questions', 'survey_questions?id=eq.1', 'rpc/xxx' 등
+ * @param {string} path    'survey_temp_questions', 'survey_temp_questions?id=eq.1', 'rpc/xxx' 등
  * @param {string} method  'get' | 'post' | 'patch' | 'delete'
  * @param {Object} [payload]
  * @param {Object} [extraHeaders]

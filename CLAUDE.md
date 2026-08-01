@@ -195,7 +195,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
   **[설문결과 저장]** 또는 **[결과를 저장하지 않고 종료]** 중 하나를 반드시
   선택해야 닫힌다(`saveSurveyResult()`/`discardSurveyResult()` in Code.js,
   publish-engine의 `finalizeSurveyResult()`/`discardSurveyQuestion()` in
-  Survey.js). 저장하지 않으면 작업 테이블(`survey_questions`,
+  Survey.js). 저장하지 않으면 작업 테이블(`survey_temp_questions`,
   `survey_temp_answers`)만 정리되고 `survey_results`에는 아무것도 안 남는다.
 
 ### 모델 제공자 정책(2026-08-01 변경): Gemini 제거, 전부 OpenAI로 통일

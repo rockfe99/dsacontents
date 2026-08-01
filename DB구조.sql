@@ -15,7 +15,7 @@
 --  설계 원칙
 --  1) 라이브 데이터(진행 중 문제·임시답변)도 Supabase에 둔다 - 대시보드와
 --     뷰어는 서로 다른 GAS 배포라 CacheService를 공유할 수 없기 때문.
---  2) 작업용 테이블(survey_questions, survey_temp_answers)과 영구 테이블
+--  2) 작업용 테이블(survey_temp_questions, survey_temp_answers)과 영구 테이블
 --     (survey_results)을 분리한다.
 --  3) "작업 테이블에 남은 행 = 항상 미완료분"이라는 불변식을 지킨다.
 --     정상 종료된 설문은 finalize_survey() 한 트랜잭션으로 결과 저장과
@@ -34,7 +34,7 @@
 --    이 테이블에 남아 있는 행은 항상 "아직 안 끝난" 설문이다 — 정상
 --    종료분은 finalize_survey()가 결과로 옮긴 뒤 바로 삭제한다.
 -- ============================================================
-create table survey_questions (
+create table survey_temp_questions (
   id              bigserial primary key,
   access_key      varchar(8)  not null,        -- 학생 배포용 고유키 (영대문자+숫자 4자리, 헷갈리는 O/I/0/1 제외)
   lecture_keyword text        not null,         -- 강의 키워드 (평가·검색 축)
@@ -52,10 +52,10 @@ create table survey_questions (
 
 -- 활성 문제끼리만 고유키가 겹치지 않으면 된다(종료·삭제된 키는 재사용 가능).
 create unique index uq_survey_active_key
-  on survey_questions (access_key) where status = 'active';
+  on survey_temp_questions (access_key) where status = 'active';
 
 -- 정리 쿼리(아래 단계 0)가 started_at으로 훑으므로 인덱스를 걸어둔다.
-create index idx_survey_questions_started_at on survey_questions (started_at);
+create index idx_survey_temp_questions_started_at on survey_temp_questions (started_at);
 
 
 -- ============================================================
@@ -65,7 +65,7 @@ create index idx_survey_questions_started_at on survey_questions (started_at);
 -- ============================================================
 create table survey_temp_answers (
   id            bigserial primary key,
-  question_id   bigint      not null references survey_questions(id) on delete cascade,
+  question_id   bigint      not null references survey_temp_questions(id) on delete cascade,
   answer_text   text        not null,
   submitted_at  timestamptz not null default now()
 );
@@ -124,7 +124,7 @@ create index idx_survey_results_keyword on survey_results (lecture_keyword);
 --    - 배포 수정 + 제목만 수정(updateLectureTitle): 슬라이드 내용 자체는
 --      안 바뀌므로 재추출하지 않음(목차 재추출 안 하는 것과 동일 정책)
 --    - 강의 완전 삭제(unpublishLecture): 그 키워드의 행 전부 DELETE
---      (survey_questions·survey_results와 같은 시점에 정리)
+--      (survey_temp_questions·survey_results와 같은 시점에 정리)
 -- ============================================================
 create table slide_contents (
   id            bigserial primary key,
@@ -149,10 +149,10 @@ create index idx_slide_contents_keyword on slide_contents (lecture_keyword);
 --    GAS가 쓰는 service_role 키는 RLS를 항상 우회하므로 정상 동작에는
 --    아무 영향이 없다(이중 방어 목적).
 -- ============================================================
-alter table survey_questions    enable row level security;
-alter table survey_temp_answers enable row level security;
-alter table survey_results      enable row level security;
-alter table slide_contents      enable row level security;
+alter table survey_temp_questions enable row level security;
+alter table survey_temp_answers   enable row level security;
+alter table survey_results        enable row level security;
+alter table slide_contents        enable row level security;
 
 
 -- ============================================================
@@ -174,7 +174,7 @@ begin
   insert into survey_temp_answers (question_id, answer_text)
   select p_question_id, p_answer
   where exists (
-    select 1 from survey_questions
+    select 1 from survey_temp_questions
     where id = p_question_id and status = 'active'
   );
 
@@ -189,13 +189,13 @@ $$;
 --   또는 Gemini 요약(의견형, callAI_() 경유)을 마친 뒤 그 결과(jsonb)를
 --   담아 이 함수를 1회 호출한다.
 --
---   결과 저장(survey_results INSERT)과 작업 테이블 정리(survey_questions
+--   결과 저장(survey_results INSERT)과 작업 테이블 정리(survey_temp_questions
 --   DELETE, 임시답변은 cascade)를 한 트랜잭션으로 묶어, "결과는 저장됐는데
 --   문제가 안 지워짐" 같은 어긋난 상태가 생기지 않게 한다. 이 덕분에 위
 --   "작업 테이블에 남은 행 = 항상 미완료분" 불변식이 항상 유지된다.
 --
 --   question_text/question_type/options/correct_answers/lecture_keyword는
---   survey_questions 원본 행에서 그대로 가져온다(GAS가 중복으로 다시
+--   survey_temp_questions 원본 행에서 그대로 가져온다(GAS가 중복으로 다시
 --   보낼 필요 없음) - GAS는 계산으로 나온 통계/요약만 p_result로 보낸다.
 --
 --   p_result 예시(객관식·단답형):
@@ -226,10 +226,10 @@ begin
     p_result->'answer_distribution',
     p_result->>'opinion_summary',
     p_result->'opinion_raw'
-  from survey_questions q
+  from survey_temp_questions q
   where q.id = p_question_id;
 
-  delete from survey_questions where id = p_question_id;
+  delete from survey_temp_questions where id = p_question_id;
 end;
 $$;
 
@@ -238,13 +238,13 @@ $$;
 -- 7. 처리 흐름 요약 (GAS publish-engine/Survey.js가 호출하는 순서)
 -- ============================================================
 -- [출제] 강사가 "학생들에게 공개" 클릭
---   0) DELETE FROM survey_questions WHERE started_at < now() - interval '1 day';
+--   0) DELETE FROM survey_temp_questions WHERE started_at < now() - interval '1 day';
 --      (하루 이상 지난 미완료분 정리 - 임시답변은 cascade로 함께 삭제)
---   1) 영문대문자+숫자 고유키 생성 → INSERT INTO survey_questions (...)
+--   1) 영문대문자+숫자 고유키 생성 → INSERT INTO survey_temp_questions (...)
 --      (활성 키 충돌 시 새 키로 재시도, uq_survey_active_key가 막아줌)
 --
 -- [응답] 학생이 고유키 입력 → 문제 조회
---   2) SELECT ... FROM survey_questions WHERE access_key = :key AND status = 'active';
+--   2) SELECT ... FROM survey_temp_questions WHERE access_key = :key AND status = 'active';
 --      (0행이면 "답변할 문제가 없습니다" — 없는 키/종료된 키를 구분하지 않음)
 --
 -- [제출] 학생이 답 전송
@@ -252,7 +252,7 @@ $$;
 --      (false면 "이미 종료됨" — 화면에는 2번과 같은 안내)
 --
 -- [종료] 강사가 "설문종료" 클릭
---   4) UPDATE survey_questions SET status='ended', ended_at=now() WHERE id=:qid;
+--   4) UPDATE survey_temp_questions SET status='ended', ended_at=now() WHERE id=:qid;
 --      (이 순간부터 2, 3번이 모두 막힘)
 --   5) GAS: 임시답변 조회 → 객관식/단답형은 채점·집계, 의견형은 ai-server로
 --      요약 시도(실패해도 원본 답변은 그대로 보존 - 재시도 불필요)
@@ -263,6 +263,6 @@ $$;
 --   6-a) [설문결과 저장] → SELECT finalize_survey(:qid, :result_json);
 --        (결과 저장 + 작업 테이블 정리가 한 트랜잭션) → survey_results에
 --        남으므로 강의 평가 시 lecture_keyword로 재조회 가능.
---   6-b) [결과를 저장하지 않고 종료] → DELETE FROM survey_questions WHERE id=:qid;
+--   6-b) [결과를 저장하지 않고 종료] → DELETE FROM survey_temp_questions WHERE id=:qid;
 --        (임시답변은 cascade 삭제) → 결과는 어디에도 남지 않음.
 -- ============================================================
