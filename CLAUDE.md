@@ -248,15 +248,22 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 |---|---|---|---|
 | 시험문제 생성 | 구현됨 | `POST /exam-questions` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain) — UI의 모델 선택 라디오는 제거됨(선택지가 하나뿐이라) |
 | 실시간 설문 - 의견형 결과 요약 | 구현됨 | `POST /opinion-summary` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain) |
+| 가상질문 생성 | 구현됨 | `POST /virtual-questions` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain+LangGraph) |
 | 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
 | 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
-| 가상질문 생성 / 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | OpenAI 예정 |
+| 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | OpenAI 예정 |
 
 ### 기능
 - **강의자료 요약** (1페이지, 배포 시 생성해 JSON에 저장 → 뷰어 즉시 열람)
 - **시험문제 생성** (강사가 유형·개수 지정 → 생성 → 화면 표시 → 골라서 시험지)
 - **이해도 보고서**: 슬라이드 파일 **1개 단위**로, 저장된 설문 답변 + 슬라이드 내용을
   통째로 AI에 넣어 분석. **벡터/RAG 불필요**(한 파일 범위라 통째 처리 가능).
+- **가상질문 생성**: `virtual_question_personas`(Supabase, `DB구조.sql` 5번 섹션)에
+  정의된 학생 페르소나 입장에서 AI가 질문을 뽑아내는 기능. **화면에 페르소나를
+  선택하게 하거나 결과를 출력할 때는 `학생1(초심자)`, `학생2(비전공, 따라가는 중)`
+  처럼 "학생N(페르소나 이름)" 형식을 쓴다** — N은 `display_order` 순서(1부터),
+  괄호 안은 `virtual_question_personas.name` 그대로. 페르소나 코드값(`beginner`
+  등)이나 설명(`description`)을 화면에 그대로 노출하지 않는다.
 
 ### 채택된 확장 아이디어 (나중에)
 난이도별 재설명, 실시간 응답 자동분석, 교안 개선 제안, 질문 패턴 분석.
@@ -485,11 +492,67 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   `AI Mode : OFF`(빨간색 계열)를 표시(`.ai-mode-badge` 클래스, 페이지 로드
   시 `checkAiEnabled_()`로 한 번 확인).
 
+### 가상질문 생성 - 구현 완료(2026-08-01)
+학생 페르소나(`virtual_question_personas`, [[가상질문 생성]] 계획 문서의 4종)
+입장에서 강의 슬라이드를 앞에서부터 읽으며 궁금한 점을 뽑아내는 기능.
+`참고파일/클로드코드 스크립트.txt`에서 여러 차례 설계를 좁혀가며 확정한
+최종안(페르소나 동시 실행 없이 1명씩 단일 요청, 슬라이드는 초/중/후반 3구간
+고정) 그대로 구현했다.
+
+- **흐름**: [가상질문 생성] 버튼 → AI_MODE 게이트(`checkAiEnabled_`) →
+  학생 선택 모달(`vqPersonaOverlay`, "학생1(초심자)" 형식 — CLAUDE.md 표시
+  규칙 참고) → 선택 즉시 캐시 확인(`getVirtualQuestionCache`) → 있으면
+  바로 표시, 없으면 자동으로 생성 시작(`generateVirtualQuestions`) →
+  결과를 구간(초반/중반/후반)별로 묶어 표시, "다시 생성" 버튼으로 재생성
+  가능(`system-b-dashboard/Dashboard.html`의 `makeVirtualQuestions` 계열
+  함수).
+- **캐시 정책**: 키워드+페르소나 조합당 최신 결과 1건만 유지(히스토리
+  누적 안 함). "다시 생성"을 눌러야만 재호출하고, 그 외에는 항상 캐시를
+  먼저 보여준다 — 시험문제 생성과 달리 결과를 영구 보관하는 이유는, 이
+  결과가 나중에 시험문제 생성·강의자료 평가에서 참고자료로 재사용될
+  예정이기 때문.
+- **GAS(publish-engine/VirtualQuestion.js, 신규)**: `getVirtualQuestionPersonas()`
+  (활성 페르소나 목록, `display_order` 순 — prompt는 안 내려줌, ai-server가
+  직접 조회), `getVirtualQuestions(keyword, personaId)`(캐시 조회),
+  `saveVirtualQuestions(keyword, personaId, questions)`(PostgREST
+  upsert — `on_conflict=lecture_keyword,persona_id` +
+  `Prefer: resolution=merge-duplicates`로 기존 결과 덮어쓰기),
+  `deleteVirtualQuestionsForKeyword(keyword)`(강의 완전 삭제 시 정리 —
+  `Publish.js`의 `unpublishLecture()`에 설문·슬라이드본문 삭제와 함께
+  추가).
+- **GAS(system-b-dashboard/Code.js)**: `getVirtualQuestionPersonaOptions()`,
+  `getVirtualQuestionCache()`는 단순 DB 조회 다리 역할.
+  `generateVirtualQuestions(keyword, personaId)`가 ai-server의
+  `POST /virtual-questions`를 호출하고, 성공하면 결과를 즉시
+  `PublishEngine.saveVirtualQuestions()`로 캐시에 저장 — `generateExamQuestions()`
+  와 같은 실패 흡수 패턴(오류·타임아웃 등은 원인 불문 `{error:true}`).
+- **ai-server**: `chains/virtual_question_agent.py` — LangGraph
+  `StateGraph`로 `read_batch`(조건부 엣지로 초→중→후반 순차 루프) →
+  `filter_questions`(END 직전, 중복·유사 질문 정리) 그래프 구성.
+  - 컨텍스트 관리: 전체 슬라이드 50장 이하면 지나온 구간 원문을 그대로
+    누적, 50장 초과면 원문 대신 구간별 요약(`batch_summary`)을 누적 —
+    요약은 별도 호출을 늘리지 않고 매 구간 질문 생성 호출의 구조화 출력에
+    함께 실어 받는다(`_BatchResult.batch_summary`).
+  - "질문 없음"도 정상 결과로 프롬프트에 명시 — 의미 있는 내용이 없거나
+    이미 본 내용과 겹치면 억지로 질문을 만들지 않는다(의견 요약 기능의
+    hallucination 교훈을 재적용).
+  - `filter_questions`가 만든 최종 정제본만 반환·저장한다 — 구간별
+    원본 질문은 별도로 보관하지 않는다.
+  - `supabase_client.py`에 `get_slide_segments(keyword)`(슬라이드
+    순서대로 원본 리스트, 배치 분할용)와 `get_persona(persona_id)`
+    (활성 페르소나 1건, prompt 포함) 추가 — `get_slide_text()`는
+    `get_slide_segments()`를 재사용하도록 리팩터링(동작 변화 없음).
+  - `requirements.txt`에 `langgraph` 추가.
+- **미확인 항목**: Cloud Run에 실제 배포 후 대시보드에서 실기기로
+  "가상질문 생성" 버튼을 눌러 학생 선택 → 생성 → 결과 표시 → 다시 생성
+  전체 흐름 확인 필요(다른 AI 기능들처럼 아직 이 세션에서는 코드
+  작성까지만 완료, 배포·실기기 확인은 별도 단계).
+
 ### 미착수
 - `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
-- 강의자료 요약(1페이지), 이해도 보고서, 가상질문 생성, 강의자료 평가 —
-  전부 미구현(계획 단계, 위 "기능별 ai-server 엔드포인트 현황" 표 참고).
-  실시간 설문·시험문제 생성은 구현 완료.
+- 강의자료 요약(1페이지), 이해도 보고서, 강의자료 평가 — 전부 미구현
+  (계획 단계, 위 "기능별 ai-server 엔드포인트 현황" 표 참고).
+  실시간 설문·시험문제 생성·가상질문 생성은 구현 완료.
 
 ---
 

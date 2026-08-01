@@ -361,6 +361,73 @@ function isAiEnabled() {
 }
 
 /**
+ * 가상질문 생성 - 페르소나 선택 모달을 채우기 위해 호출. 목록·설명은
+ * 배포엔진(publish-engine/VirtualQuestion.js)에서 그대로 가져온다.
+ * @return {Array<Object>} [{ persona_id, name, description, display_order }, ...]
+ */
+function getVirtualQuestionPersonaOptions() {
+  return PublishEngine.getVirtualQuestionPersonas();
+}
+
+/**
+ * 가상질문 생성 - 페르소나 선택 직후, 이미 생성된 결과가 있는지 확인(캐시).
+ * 있으면 재생성 없이 그대로 보여주고, 강사가 원할 때만 "다시 생성"한다.
+ * @param {string} keyword
+ * @param {string} personaId
+ * @return {Object|null} { questions, generated_at } 또는 없으면 null
+ */
+function getVirtualQuestionCache(keyword, personaId) {
+  return PublishEngine.getVirtualQuestions(keyword, personaId);
+}
+
+/**
+ * 가상질문 생성 - ai-server(Cloud Run, Python+LangChain+LangGraph)의
+ * POST /virtual-questions를 호출해 선택한 페르소나 학생 입장에서 궁금해할
+ * 질문을 새로 생성하고, 성공하면 캐시(Supabase virtual_questions)에 저장한다.
+ * "다시 생성"도 이 함수를 그대로 호출한다 - 기존 캐시를 덮어쓴다.
+ * CLAUDE.md 규칙 10: 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정
+ * 안내 문구로 흡수한다 - 여기서는 성공/실패만 전달하고, 문구는 대시보드가
+ * 통일해서 띄운다(showAiCreditModal 재사용).
+ * @param {string} keyword
+ * @param {string} personaId
+ * @return {Object} { questions: [{ batch, question }, ...] } 또는 실패 시 { error: true }
+ */
+function generateVirtualQuestions(keyword, personaId) {
+  try {
+    if (!isAiEnabled()) {
+      return { error: true };
+    }
+
+    var serverUrl = PublishEngine.getSetting('AI_SERVER_URL');
+    var apiKey = PublishEngine.getSecret('AI_SERVER_KEY');
+    if (!serverUrl || !apiKey) {
+      throw new Error('AI_SERVER_URL/AI_SERVER_KEY가 설정되어 있지 않습니다.');
+    }
+
+    var res = UrlFetchApp.fetch(serverUrl + '/virtual-questions', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'X-API-Key': apiKey },
+      payload: JSON.stringify({ keyword: keyword, persona_id: personaId }),
+      muteHttpExceptions: true
+    });
+
+    if (res.getResponseCode() !== 200) {
+      Logger.log('가상질문 생성 서버 오류: %s %s', res.getResponseCode(), res.getContentText());
+      return { error: true };
+    }
+
+    var data = JSON.parse(res.getContentText());
+    var questions = (data && data.questions) || [];
+    PublishEngine.saveVirtualQuestions(keyword, personaId, questions);
+    return { questions: questions };
+  } catch (err) {
+    Logger.log('가상질문 생성 오류: %s', err);
+    return { error: true };
+  }
+}
+
+/**
  * 시험문제 자동생성 - ai-server(Cloud Run, Python+LangChain)를 호출해 문제 목록을
  * 받아온다. slide_contents(그 키워드의 슬라이드 본문)를 근거로 생성된다.
  * CLAUDE.md 규칙 10: 호출 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정

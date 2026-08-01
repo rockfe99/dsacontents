@@ -193,6 +193,21 @@
   .bar-fill { height: 100%; background: var(--line); }
   .opinion-box { white-space: pre-line; background: var(--bg); padding: 10px; border-radius: 6px; font-size: 13px; }
 
+  .vq-persona-list { display: flex; flex-direction: column; gap: 8px; }
+  .vq-persona-btn {
+    display: block; width: 100%; text-align: left; border: 1px solid var(--line);
+    background: var(--white); border-radius: 8px; padding: 10px 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  .vq-persona-btn:hover { background: var(--blue-050); border-color: var(--blue-500); }
+  .vq-persona-name { font-weight: 700; color: var(--blue-900); font-size: 13.5px; }
+  .vq-persona-desc { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+  .vq-batch-group { margin-bottom: 14px; }
+  .vq-batch-group:last-child { margin-bottom: 0; }
+  .vq-batch-label { font-weight: 700; font-size: 12.5px; color: var(--blue-700); margin-bottom: 6px; }
+  .vq-question-list { padding-left: 18px; margin: 0; display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+  .vq-generated-at { font-size: 11.5px; color: var(--ink-soft); margin-bottom: 12px; }
+
   .empty { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
   .loading { padding: 60px 20px; text-align: center; color: var(--ink-soft); }
 
@@ -456,6 +471,35 @@
     </div>
   </div>
 
+  <!-- 가상질문 생성 - 학생 페르소나 선택 모달 -->
+  <div class="modal-overlay" id="vqPersonaOverlay">
+    <div class="modal" style="width:440px;">
+      <div class="modal-header">
+        <h3>가상질문 생성 - 학생 선택</h3>
+        <button class="modal-close" onclick="closeVqPersona()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="hint">질문을 생성하거나 확인할 학생을 선택하세요. 이미 생성된 결과가 있으면 바로 보여줍니다.</div>
+        <div class="vq-persona-list" id="vqPersonaList"></div>
+      </div>
+      <div class="modal-footer" style="justify-content:flex-end;">
+        <button class="btn-ghost" onclick="closeVqPersona()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 가상질문 생성 - 결과(또는 생성 진행) 모달 -->
+  <div class="modal-overlay" id="vqResultOverlay">
+    <div class="modal" style="width:520px;">
+      <div class="modal-header">
+        <h3 id="vqResultTitle">가상질문</h3>
+        <button class="modal-close" onclick="closeVqResult()">&times;</button>
+      </div>
+      <div class="modal-body" id="vqResultBody"></div>
+      <div class="modal-footer" id="vqResultFooter" style="justify-content:flex-end;"></div>
+    </div>
+  </div>
+
   <!-- 공용 확인/알림 모달. alert()/confirm() 대신 항상 이 모달을 통해서만 사용자에게 확인을 받는다. -->
   <div class="modal-overlay" id="confirmModalOverlay">
     <div class="modal" style="width:380px;">
@@ -603,12 +647,164 @@
     showAiCreditModal();
   }
 
-  function makeVirtualQuestions(key) {
+  function evaluateMaterial(key) {
     showAiFeatureNotReady_();
   }
 
-  function evaluateMaterial(key) {
-    showAiFeatureNotReady_();
+  // ===== 가상질문 생성 =====
+  var currentVqKeyword = null;
+  var currentVqPersonaId = null;
+  var vqPersonaList = [];
+  var vqElapsedTimer = null;
+  var vqStartedAt = null;
+
+  function makeVirtualQuestions(key) {
+    checkAiEnabled_(function (enabled) {
+      if (!enabled) { showAiCreditModal(); return; }
+      currentVqKeyword = key;
+      openVqPersonaModal();
+    });
+  }
+
+  function openVqPersonaModal() {
+    document.getElementById('vqPersonaList').innerHTML = '<div class="loading">불러오는 중…</div>';
+    document.getElementById('vqPersonaOverlay').classList.add('show');
+    google.script.run
+      .withSuccessHandler(renderVqPersonaList)
+      .withFailureHandler(function (err) {
+        document.getElementById('vqPersonaList').innerHTML =
+          '<div class="empty">학생 목록을 불러오지 못했습니다: ' + esc(err.message) + '</div>';
+      })
+      .getVirtualQuestionPersonaOptions();
+  }
+
+  /** "학생1(초심자)" 형식 - CLAUDE.md 표시 규칙: N은 display_order 순서, 괄호 안은 persona.name. */
+  function renderVqPersonaList(personas) {
+    vqPersonaList = personas || [];
+    var html = vqPersonaList.map(function (p, i) {
+      var label = '학생' + (i + 1) + '(' + p.name + ')';
+      return '<button type="button" class="vq-persona-btn" onclick="selectVqPersona(\'' + esc(p.persona_id) + '\')">' +
+        '<div class="vq-persona-name">' + esc(label) + '</div>' +
+        '<div class="vq-persona-desc">' + esc(p.description) + '</div>' +
+        '</button>';
+    }).join('');
+    document.getElementById('vqPersonaList').innerHTML =
+      html || '<div class="empty">등록된 학생 페르소나가 없습니다.</div>';
+  }
+
+  function closeVqPersona() {
+    document.getElementById('vqPersonaOverlay').classList.remove('show');
+  }
+
+  function vqPersonaLabel_(personaId) {
+    var idx = -1;
+    for (var i = 0; i < vqPersonaList.length; i++) {
+      if (vqPersonaList[i].persona_id === personaId) { idx = i; break; }
+    }
+    if (idx === -1) return personaId;
+    return '학생' + (idx + 1) + '(' + vqPersonaList[idx].name + ')';
+  }
+
+  function selectVqPersona(personaId) {
+    currentVqPersonaId = personaId;
+    closeVqPersona();
+
+    document.getElementById('vqResultTitle').textContent = vqPersonaLabel_(personaId);
+    document.getElementById('vqResultBody').innerHTML = '<div class="loading">기존 생성 결과를 확인하는 중…</div>';
+    document.getElementById('vqResultFooter').innerHTML = '';
+    document.getElementById('vqResultOverlay').classList.add('show');
+
+    google.script.run
+      .withSuccessHandler(function (cached) {
+        if (cached && cached.questions && cached.questions.length) {
+          renderVqResult(cached.questions, cached.generated_at);
+        } else {
+          startVqGenerate();
+        }
+      })
+      .withFailureHandler(function () { startVqGenerate(); })
+      .getVirtualQuestionCache(currentVqKeyword, currentVqPersonaId);
+  }
+
+  function startVqGenerate() {
+    vqStartedAt = Date.now();
+    document.getElementById('vqResultFooter').innerHTML = '';
+    updateVqElapsed();
+    clearInterval(vqElapsedTimer);
+    vqElapsedTimer = setInterval(updateVqElapsed, 1000);
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        clearInterval(vqElapsedTimer);
+        if (result && result.error) {
+          document.getElementById('vqResultOverlay').classList.remove('show');
+          showAiCreditModal();
+          return;
+        }
+        renderVqResult(result.questions, new Date().toISOString());
+      })
+      .withFailureHandler(function () {
+        clearInterval(vqElapsedTimer);
+        document.getElementById('vqResultOverlay').classList.remove('show');
+        showAiCreditModal();
+      })
+      .generateVirtualQuestions(currentVqKeyword, currentVqPersonaId);
+  }
+
+  function updateVqElapsed() {
+    var sec = Math.max(0, Math.floor((Date.now() - vqStartedAt) / 1000));
+    var mm = ('0' + Math.floor(sec / 60)).slice(-2);
+    var ss = ('0' + (sec % 60)).slice(-2);
+    document.getElementById('vqResultBody').innerHTML =
+      '<div class="loading"><strong>가상질문 생성 중…</strong> 경과 ' + mm + ':' + ss + '</div>';
+  }
+
+  /** 구간(초반/중반/후반) 순서대로 묶어 표시. 정의되지 않은 구간명이 와도 뒤에 붙여 표시(방어적 처리). */
+  function renderVqResult(questions, generatedAt) {
+    var order = ['초반', '중반', '후반'];
+    var groups = {};
+    (questions || []).forEach(function (q) {
+      var key = q.batch || '기타';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(q.question);
+    });
+
+    var labels = order.filter(function (l) { return groups[l]; });
+    Object.keys(groups).forEach(function (l) {
+      if (labels.indexOf(l) === -1) labels.push(l);
+    });
+
+    var html = '<div class="vq-generated-at">생성 시각: ' + esc(formatVqDate_(generatedAt)) + '</div>';
+    if (!labels.length) {
+      html += '<div class="hint">생성된 질문이 없습니다.</div>';
+    } else {
+      html += labels.map(function (label) {
+        return '<div class="vq-batch-group">' +
+          '<div class="vq-batch-label">' + esc(label) + '</div>' +
+          '<ul class="vq-question-list">' +
+          groups[label].map(function (q) { return '<li>' + esc(q) + '</li>'; }).join('') +
+          '</ul></div>';
+      }).join('');
+    }
+
+    document.getElementById('vqResultBody').innerHTML = html;
+    document.getElementById('vqResultFooter').innerHTML =
+      '<button class="btn-ghost" onclick="closeVqResult()">닫기</button>' +
+      '<button class="btn-primary" onclick="startVqGenerate()">다시 생성</button>';
+    document.getElementById('vqResultOverlay').classList.add('show');
+  }
+
+  function formatVqDate_(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    function p(n) { return ('0' + n).slice(-2); }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  function closeVqResult() {
+    clearInterval(vqElapsedTimer);
+    document.getElementById('vqResultOverlay').classList.remove('show');
   }
 
   // ===== 시험문제 생성 =====

@@ -3,8 +3,9 @@ ai-server — 강의 콘텐츠 관리 플랫폼의 AI 기능 전용 서버 (Clou
 system-b-dashboard(GAS)가 UrlFetchApp으로 이 서버를 호출한다.
 
 엔드포인트: 시험문제 자동생성(POST /exam-questions),
-           실시간 설문 의견형 결과 요약(POST /opinion-summary)
-둘 다 llm_provider.get_openai_llm()으로 OpenAI 인스턴스를 공유해서 쓴다.
+           실시간 설문 의견형 결과 요약(POST /opinion-summary),
+           가상질문 생성(POST /virtual-questions)
+모두 llm_provider.get_openai_llm()으로 OpenAI 인스턴스를 공유해서 쓴다.
 """
 
 from typing import Literal
@@ -15,7 +16,8 @@ from pydantic import BaseModel
 from auth import verify_api_key
 from chains.exam_generator import generate as generate_exam_questions
 from chains.opinion_summarizer import summarize as summarize_opinions
-from supabase_client import get_slide_text
+from chains.virtual_question_agent import generate as generate_virtual_questions
+from supabase_client import get_persona, get_slide_segments, get_slide_text
 
 app = FastAPI(title="dsacontents ai-server")
 
@@ -36,6 +38,11 @@ class OpinionSummaryRequest(BaseModel):
     keyword: str
     question_text: str
     answers_text: str
+
+
+class VirtualQuestionRequest(BaseModel):
+    keyword: str
+    persona_id: str
 
 
 @app.post("/exam-questions")
@@ -64,3 +71,22 @@ def opinion_summary(req: OpinionSummaryRequest, x_api_key: str = Header(default=
         raise HTTPException(status_code=500, detail=str(err))
 
     return {"summary": summary}
+
+
+@app.post("/virtual-questions")
+def virtual_questions(req: VirtualQuestionRequest, x_api_key: str = Header(default="")):
+    verify_api_key(x_api_key)
+
+    try:
+        persona = get_persona(req.persona_id)
+        segments = get_slide_segments(req.keyword)
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    if not persona:
+        raise HTTPException(status_code=404, detail="존재하지 않거나 비활성화된 학생 페르소나입니다.")
+    if not segments:
+        raise HTTPException(status_code=404, detail="슬라이드 내용을 찾을 수 없습니다.")
+
+    questions = generate_virtual_questions(persona["prompt"], segments)
+    return {"questions": questions}

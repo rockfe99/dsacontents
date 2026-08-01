@@ -119,6 +119,8 @@ function lectureExists(keyword) {
  *    이전 강의의 설문 결과가 새 강의에 섞이지 않도록 함.
  * 5) 그 키워드로 저장된 슬라이드 본문 텍스트(slide_contents)도 Supabase에서
  *    전부 삭제(deleteSlideContentsForKeyword).
+ * 6) 그 키워드로 생성된 가상질문 결과(virtual_questions)도 Supabase에서
+ *    전부 삭제(deleteVirtualQuestionsForKeyword).
  * @param {string} keyword
  * @return {Object} { keyword }
  */
@@ -170,6 +172,7 @@ function unpublishLecture(keyword) {
   // 강의 완전 삭제이므로 키워드 재사용 시 섞이지 않도록 관련 데이터도 함께 삭제
   deleteSurveyDataForKeyword(target);
   deleteSlideContentsForKeyword(target);
+  deleteVirtualQuestionsForKeyword(target);
 
   return { keyword: target };
 }
