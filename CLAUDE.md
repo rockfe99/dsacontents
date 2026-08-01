@@ -496,16 +496,21 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
 학생 페르소나(`virtual_question_personas`, [[가상질문 생성]] 계획 문서의 4종)
 입장에서 강의 슬라이드를 앞에서부터 읽으며 궁금한 점을 뽑아내는 기능.
 `참고파일/클로드코드 스크립트.txt`에서 여러 차례 설계를 좁혀가며 확정한
-최종안(페르소나 동시 실행 없이 1명씩 단일 요청, 슬라이드는 초/중/후반 3구간
-고정) 그대로 구현했다.
+최종안(페르소나 동시 실행 없이 1명씩 단일 요청, 슬라이드는 Part 1/2/3
+3구간 고정) 그대로 구현했다.
 
 - **흐름**: [가상질문 생성] 버튼 → AI_MODE 게이트(`checkAiEnabled_`) →
   학생 선택 모달(`vqPersonaOverlay`, "학생1(초심자)" 형식 — CLAUDE.md 표시
   규칙 참고) → 선택 즉시 캐시 확인(`getVirtualQuestionCache`) → 있으면
   바로 표시, 없으면 자동으로 생성 시작(`generateVirtualQuestions`) →
-  결과를 구간(초반/중반/후반)별로 묶어 표시, "다시 생성" 버튼으로 재생성
-  가능(`system-b-dashboard/Dashboard.html`의 `makeVirtualQuestions` 계열
-  함수).
+  결과 준비되면(캐시 적중이든 신규 생성이든) 모달에는 페르소나 설명·생성
+  시각·개수 같은 짧은 요약만 두고, Part 1/2/3 구간별 질문 전체는 자동으로
+  새 탭에 연다(`openVqResultWindow`, 시험문제 생성의 `openExamResultWindow`
+  와 같은 패턴) — 질문이 많으면 세로로 길어져 모달 안에서는 닫기 버튼이나
+  위/아래 내용이 잘리는 문제가 있어 모달 표시 대신 새 탭으로 전환함
+  (2026-08-01). 새 탭 헤더에도 페르소나 설명을 표시한다. 모달의 "다시 생성"
+  버튼으로 재생성 가능, "새 탭에서 보기"로 방금 그 결과를 다시 열 수 있음
+  (`system-b-dashboard/Dashboard.html`의 `makeVirtualQuestions` 계열 함수).
 - **캐시 정책**: 키워드+페르소나 조합당 최신 결과 1건만 유지(히스토리
   누적 안 함). "다시 생성"을 눌러야만 재호출하고, 그 외에는 항상 캐시를
   먼저 보여준다 — 시험문제 생성과 달리 결과를 영구 보관하는 이유는, 이
@@ -527,7 +532,7 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   `PublishEngine.saveVirtualQuestions()`로 캐시에 저장 — `generateExamQuestions()`
   와 같은 실패 흡수 패턴(오류·타임아웃 등은 원인 불문 `{error:true}`).
 - **ai-server**: `chains/virtual_question_agent.py` — LangGraph
-  `StateGraph`로 `read_batch`(조건부 엣지로 초→중→후반 순차 루프) →
+  `StateGraph`로 `read_batch`(조건부 엣지로 Part 1→2→3 순차 루프) →
   `filter_questions`(END 직전, 중복·유사 질문 정리) 그래프 구성.
   - 컨텍스트 관리: 전체 슬라이드 50장 이하면 지나온 구간 원문을 그대로
     누적, 50장 초과면 원문 대신 구간별 요약(`batch_summary`)을 누적 —

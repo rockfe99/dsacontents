@@ -34,7 +34,7 @@ def get_slide_text(keyword: str) -> str:
 def get_slide_segments(keyword: str) -> list[dict]:
     """키워드로 slide_contents를 슬라이드 순서대로 조회해 원본 리스트 그대로
     반환한다([{slide_index, slide_text}, ...]). 가상질문 생성(/virtual-questions)이
-    슬라이드를 초/중/후반 구간으로 나누는 데 쓴다."""
+    슬라이드를 Part 1/2/3 구간으로 나누는 데 쓴다."""
     _require_config()
 
     url = f"{SUPABASE_URL}/rest/v1/slide_contents"

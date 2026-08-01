@@ -3,7 +3,7 @@
 궁금한 점을 질문으로 뽑아내는 LangGraph 에이전트.
 
 설계(참고파일/클로드코드 스크립트.txt의 최종 확정 설계):
-- 슬라이드는 초/중/후반 3구간으로 나눠 순서대로("배치") 처리한다.
+- 슬라이드는 Part 1/2/3 3구간으로 나눠 순서대로("배치") 처리한다.
 - 구간은 페르소나 1명 안에서는 반드시 직렬(앞 구간 내용을 알아야 다음 구간을
   판단할 수 있음) - 그래서 그래프는 read_batch를 조건부 엣지로 반복하는
   단순 루프 구조다.
@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 
 from llm_provider import get_openai_llm
 
-_BATCH_LABELS = ["초반", "중반", "후반"]
+_BATCH_LABELS = ["Part 1", "Part 2", "Part 3"]
 _SUMMARY_THRESHOLD_SLIDES = 50
 
 
@@ -48,7 +48,7 @@ class _BatchResult(BaseModel):
 
 
 class _FilteredQuestion(BaseModel):
-    batch: str = Field(description="이 질문이 처음 나온 구간(초반/중반/후반)")
+    batch: str = Field(description="이 질문이 처음 나온 구간(Part 1/Part 2/Part 3)")
     question: str = Field(description="질문 원문(고치지 않고 그대로)")
 
 
@@ -111,7 +111,7 @@ _FILTER_PROMPT_TEMPLATE = """{persona_prompt}
 
 
 def _split_into_batches(segments: list[dict]) -> list[dict]:
-    """슬라이드 순서를 유지한 채 초/중/후반 구간으로 나눈다(슬라이드 수가
+    """슬라이드 순서를 유지한 채 Part 1/2/3 구간으로 나눈다(슬라이드 수가
     3장 미만이면 그보다 적은 구간). 각 구간은 [슬라이드 N] 텍스트를 이어붙인
     문자열이다."""
     n = len(segments)
@@ -206,10 +206,10 @@ _compiled_graph = _graph.compile()
 
 
 def generate(persona_prompt: str, slide_segments: list[dict]) -> list[dict]:
-    """페르소나 프롬프트와 슬라이드 세그먼트(순서대로)를 받아, 초/중/후반
+    """페르소나 프롬프트와 슬라이드 세그먼트(순서대로)를 받아, Part 1/2/3
     구간을 순서대로 읽어나가며 질문을 만들고 마지막에 중복을 정리한 최종
     질문 목록을 반환한다.
-    반환 형태: [{"batch": "초반|중반|후반", "question": "..."}, ...]
+    반환 형태: [{"batch": "Part 1|Part 2|Part 3", "question": "..."}, ...]
     """
     batches = _split_into_batches(slide_segments)
     if not batches:

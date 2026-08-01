@@ -195,7 +195,7 @@ create table virtual_questions (
   lecture_keyword text  not null,        -- 강의 키워드 (조회 축)
   persona_id      text  not null references virtual_question_personas(persona_id),
   questions       jsonb not null,         -- 필터링된 최종 질문 목록
-                                          -- [{"batch": "초반|중반|후반", "question": "..."}, ...]
+                                          -- [{"batch": "Part 1|Part 2|Part 3", "question": "..."}, ...]
   generated_at    timestamptz not null default now()
 );
 
