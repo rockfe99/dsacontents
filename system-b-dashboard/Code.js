@@ -197,10 +197,10 @@ function createSurvey(keyword, questionText, questionType, options, correctAnswe
 
 /**
  * 실시간 설문 - "설문종료" 버튼에서 호출. 종료 처리 → 임시답변 집계/채점
- * (또는 의견형은 summarizeOpinions_() 요약) → 결과 영구 저장까지 한 번에 수행한다.
- * 의견형 요약(ai-server)이 실패해도 학생 답변 원문(opinion_raw)은 그대로
- * 결과에 남기고 finalizeSurveyResult는 항상 호출한다 - 재시도 없이도
- * 데이터 유실이 생기지 않도록 하기 위함.
+ * (또는 의견형은 summarizeOpinions_() 요약)까지만 수행하고 결과 화면을 띄운다.
+ * 영구 저장은 하지 않는다 - 강사가 결과 화면에서 [설문결과 저장] /
+ * [결과를 저장하지 않고 종료] 중 하나를 골라야 저장 여부가 결정된다
+ * (saveSurveyResult / discardSurveyResult 참고).
  * @param {number} questionId
  * @return {Object} 결과(화면 렌더링용) { question_text, question_type,
  *                    total_responses, correct_count, accuracy_rate,
@@ -268,11 +268,28 @@ function finishSurvey(questionId) {
     result.opinion_raw = null;
   }
 
-  PublishEngine.finalizeSurveyResult(questionId, result);
-
   result.question_text = q.question_text;
   result.question_type = q.question_type;
   return result;
+}
+
+/**
+ * 설문 결과 모달의 [설문결과 저장] 버튼에서 호출. finishSurvey()가 돌려준
+ * 결과를 그대로 되돌려받아 영구 저장한다(강의자료 평가 등에 활용).
+ * @param {number} questionId
+ * @param {Object} result  finishSurvey()의 반환값
+ */
+function saveSurveyResult(questionId, result) {
+  PublishEngine.finalizeSurveyResult(questionId, result);
+}
+
+/**
+ * 설문 결과 모달의 [결과를 저장하지 않고 종료] 버튼에서 호출. 결과를
+ * 저장하지 않고 작업 테이블(문제+임시답변)만 정리한다.
+ * @param {number} questionId
+ */
+function discardSurveyResult(questionId) {
+  PublishEngine.discardSurveyQuestion(questionId);
 }
 
 /** 채점·집계용 정규화: 앞뒤 공백 제거, 연속 공백 하나로, 대소문자 무시. */

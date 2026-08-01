@@ -137,6 +137,19 @@ function finalizeSurveyResult(questionId, result) {
   }
 }
 
+/**
+ * 결과를 저장하지 않고 종료할 때("결과를 저장하지 않고 종료" 버튼) 호출.
+ * finalizeSurveyResult()와 달리 survey_results에는 아무것도 남기지 않고,
+ * 작업 테이블 행만 지운다(survey_temp_answers는 cascade로 함께 삭제).
+ * @param {number} questionId
+ */
+function discardSurveyQuestion(questionId) {
+  var res = supabaseRequest_('survey_questions?id=eq.' + questionId, 'delete');
+  if (res.code !== 200 && res.code !== 204) {
+    throw new Error('설문 결과 폐기 실패: ' + res.code + ' ' + JSON.stringify(res.body));
+  }
+}
+
 /** 하루 이상 지난 미완료(active/ended 무관) 설문 문제를 지운다. 임시답변은 cascade 삭제. */
 function cleanupStaleSurveys_() {
   var cutoff = new Date(Date.now() - SURVEY_STALE_HOURS_ * 3600 * 1000).toISOString();
