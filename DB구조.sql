@@ -29,7 +29,7 @@
 
 
 -- ============================================================
--- 1. 설문 문제 테이블 (라이브·작업용)
+-- 1. 설문 문제 임시 테이블 (라이브·작업용)
 --    "학생들에게 공개" 시 1행 INSERT.
 --    이 테이블에 남아 있는 행은 항상 "아직 안 끝난" 설문이다 — 정상
 --    종료분은 finalize_survey()가 결과로 옮긴 뒤 바로 삭제한다.
@@ -92,7 +92,7 @@ create table survey_results (
   answer_distribution jsonb,                       -- 제출답안별 통계(막대그래프용)
 
   -- 의견형 결과 (객관식·단답형은 전부 null)
-  -- Gemini 요약이 실패했을 때도 결과 저장 자체는 항상 성공해야 하므로,
+  -- OpenAI 요약이 실패했을 때도 결과 저장 자체는 항상 성공해야 하므로,
   -- opinion_summary만 null로 두고 opinion_raw(원본 답변)는 그대로 남긴다.
   -- 화면에서는 summary가 없으면 opinion_raw를 그대로 보여준다.
   opinion_summary     text,
@@ -186,8 +186,8 @@ $$;
 -- ------------------------------------------------------------
 -- finalize_survey(qid, result)
 --   설문종료 처리의 마지막 단계. GAS(시스템 B)가 채점/집계(객관식·단답형)
---   또는 Gemini 요약(의견형, callAI_() 경유)을 마친 뒤 그 결과(jsonb)를
---   담아 이 함수를 1회 호출한다.
+--   또는 OpenAI 요약(의견형, ai-server의 POST /opinion-summary 경유)을
+--   마친 뒤 그 결과(jsonb)를 담아 이 함수를 1회 호출한다.
 --
 --   결과 저장(survey_results INSERT)과 작업 테이블 정리(survey_temp_questions
 --   DELETE, 임시답변은 cascade)를 한 트랜잭션으로 묶어, "결과는 저장됐는데
@@ -201,11 +201,11 @@ $$;
 --   p_result 예시(객관식·단답형):
 --     {"total_responses": 20, "correct_count": 15, "accuracy_rate": 75.0,
 --      "answer_distribution": [...], "opinion_summary": null, "opinion_raw": null}
---   p_result 예시(의견형, Gemini 성공):
+--   p_result 예시(의견형, OpenAI 요약 성공):
 --     {"total_responses": 8, "correct_count": null, "accuracy_rate": null,
 --      "answer_distribution": null,
 --      "opinion_summary": "학생들은 대체로...", "opinion_raw": ["...", "..."]}
---   p_result 예시(의견형, Gemini 실패 - 원본 답변만 남김):
+--   p_result 예시(의견형, OpenAI 요약 실패 - 원본 답변만 남김):
 --     {"total_responses": 8, ..., "opinion_summary": null, "opinion_raw": ["...", "..."]}
 -- ------------------------------------------------------------
 create or replace function finalize_survey(p_question_id bigint, p_result jsonb)
