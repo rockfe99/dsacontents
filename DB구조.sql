@@ -144,19 +144,85 @@ create index idx_slide_contents_keyword on slide_contents (lecture_keyword);
 
 
 -- ============================================================
--- 5. RLS — anon/authenticated 키가 유출돼도 접근 불가능하도록 기본 차단.
+-- 5. 가상질문 페르소나 정의 테이블 — "가상질문 생성" 기능이 쓰는 학생
+--    페르소나(성격·행동양식·이해도)를 코드가 아니라 데이터로 관리한다.
+--    페르소나 개수·성격은 나중에 바뀔 가능성이 높다는 전제 — 새 페르소나가
+--    필요하면 이 테이블에 행을 하나 추가하기만 하면 되고(코드·스키마 변경
+--    불필요), 기존 페르소나를 없애고 싶으면 삭제 대신 active=false로
+--    바꿔서 화면 선택지에서만 숨긴다(과거에 그 페르소나로 생성된
+--    virtual_questions 행이 FK로 참조 중이라 삭제하면 끊어짐).
+-- ============================================================
+create table virtual_question_personas (
+  persona_id    text primary key,        -- 영문 코드(예: beginner) - ai-server/GAS가 이 값으로 조회
+  name          text not null,           -- 강사 화면에 보여줄 이름(예: "초심자")
+  description   text not null,           -- 선택 화면에 보여줄 한 줄 소개
+  prompt        text not null,           -- AI에게 줄 상세 지시문(성격·행동양식·이해도)
+  display_order int  not null default 0, -- 화면에 보여줄 순서
+  active        boolean not null default true,  -- false면 선택 화면에서 숨김(삭제 아님)
+  created_at    timestamptz not null default now()
+);
+
+-- 초기 페르소나 4종 시드 데이터. 나중에 추가/수정은 이 INSERT를 다시
+-- 쓸 필요 없이 Supabase 테이블 편집기나 별도 SQL로 행만 추가/수정하면 됨.
+insert into virtual_question_personas (persona_id, name, description, prompt, display_order) values
+('beginner', '초심자',
+ '이 분야 사전지식이 없고 용어·개념이 생소한 학습자',
+ '당신은 이 과목을 처음 배우는 성인 학습자입니다. 관련 사전지식이 전혀 없고 전문 용어나 개념이 낯섭니다. 성격은 신중하고 꼼꼼하며, 모르는 용어가 나오면 그냥 넘어가지 못하고 다소 불안해하는 편입니다. 기본적인 용어의 뜻이나 "이게 왜 필요한지" 같은 근본적인 질문을 주로 하고, 앞에서 나온 개념과 지금 개념을 스스로 연결짓지 못해 "이게 아까 그거랑 같은 건가요?" 같은 질문도 합니다.',
+ 1),
+('casual', '비전공, 따라가는 중',
+ '비전공이지만 관심이 많고 그럭저럭 수업을 따라가는 학습자',
+ '당신은 비전공자이지만 이 분야에 관심이 많고 독학 경험이 약간 있는 성인 학습자입니다. 큰 흐름은 이해하지만 세부 내용에서 막히곤 합니다. 성격은 적극적이고 실용적이라 "이걸 어디에 쓰는지"를 궁금해합니다. 개념 자체보다는 세부 적용이나 예외 상황("이 경우엔 어떻게 되나요?")을 주로 묻습니다.',
+ 2),
+('major_theory', '전공 이론파',
+ '관련 전공자이지만 실무 경험은 없고 이론적 이해도가 높은 학습자',
+ '당신은 이 분야를 전공했지만 실무 경험은 없는 성인 학습자입니다. 이론적 배경이 탄탄해서 기본 개념 질문은 거의 하지 않습니다. 성격은 분석적이고 완벽주의 성향이 있어 개념 간 논리적 정합성을 따집니다. "왜 이렇게 설계되었는지", "다른 방식과의 차이가 뭔지" 같은 원리·근거를 캐묻는 질문을 주로 하며, 질문 빈도는 낮지만 깊이가 있습니다.',
+ 3),
+('major_practice', '실무 경험자',
+ '짧지만 관련 실무·프로젝트 경험이 있는 학습자',
+ '당신은 관련 분야에서 짧지만 실제 프로젝트나 업무 경험이 있는 성인 학습자입니다. 실무적으로는 이해도가 높지만 이론적 배경에는 구멍이 있을 수 있습니다. 성격은 현실적이고 실전 지향적이라 강의 내용을 항상 실무 사례와 연결지어 생각합니다. "실제로는 이렇게 안 되던데 왜 그런가요?", "현업에서는 이걸 어떻게 처리하나요?" 같은 실무 적용·예외 상황 질문을 주로 합니다.',
+ 4);
+
+
+-- ============================================================
+-- 6. 가상질문 생성 결과 테이블 (영구) — "가상질문 생성" 기능(강의자료를
+--    페르소나 학생 입장에서 읽으며 궁금한 점을 AI로 뽑아내는 기능)의
+--    결과. slide_contents와 같은 스냅샷 성격 — 키워드+페르소나 조합당
+--    최신 결과 1건만 유지하고, "다시 생성"을 누르면 덮어쓴다(히스토리
+--    누적 안 함).
+-- ============================================================
+create table virtual_questions (
+  id              bigserial primary key,
+  lecture_keyword text  not null,        -- 강의 키워드 (조회 축)
+  persona_id      text  not null references virtual_question_personas(persona_id),
+  questions       jsonb not null,         -- 필터링된 최종 질문 목록
+                                          -- [{"batch": "초반|중반|후반", "question": "..."}, ...]
+  generated_at    timestamptz not null default now()
+);
+
+-- 키워드+페르소나 조합당 1건만 유지("다시 생성"은 이 조합 기준 UPSERT).
+-- lecture_keyword로 시작하는 복합 인덱스라 키워드만으로 조회할 때도
+-- (강의 하나의 4개 페르소나 결과를 한 번에 볼 때) 그대로 활용된다 —
+-- 별도의 단일 컬럼 인덱스는 두지 않는다.
+create unique index uq_virtual_questions_keyword_persona
+  on virtual_questions (lecture_keyword, persona_id);
+
+
+-- ============================================================
+-- 7. RLS — anon/authenticated 키가 유출돼도 접근 불가능하도록 기본 차단.
 --    정책을 하나도 만들지 않으면 anon/authenticated 롤은 전부 거부되고,
 --    GAS가 쓰는 service_role 키는 RLS를 항상 우회하므로 정상 동작에는
 --    아무 영향이 없다(이중 방어 목적).
 -- ============================================================
-alter table survey_temp_questions enable row level security;
-alter table survey_temp_answers   enable row level security;
-alter table survey_results        enable row level security;
-alter table slide_contents        enable row level security;
+alter table survey_temp_questions     enable row level security;
+alter table survey_temp_answers       enable row level security;
+alter table survey_results            enable row level security;
+alter table slide_contents            enable row level security;
+alter table virtual_question_personas enable row level security;
+alter table virtual_questions         enable row level security;
 
 
 -- ============================================================
--- 6. 함수
+-- 8. 함수
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -235,7 +301,7 @@ $$;
 
 
 -- ============================================================
--- 7. 처리 흐름 요약 (GAS publish-engine/Survey.js가 호출하는 순서)
+-- 9. 처리 흐름 요약 (GAS publish-engine/Survey.js가 호출하는 순서)
 -- ============================================================
 -- [출제] 강사가 "학생들에게 공개" 클릭
 --   0) DELETE FROM survey_temp_questions WHERE started_at < now() - interval '1 day';
