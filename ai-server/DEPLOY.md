@@ -18,7 +18,7 @@ def health_check():
     return "ai-server가 정상적으로 배포되어 실행 중입니다."
 ```
 
-`GEMINI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY` 등 환경변수가
+`OPENAI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY` 등 환경변수가
 전혀 설정되어 있지 않아도 이 경로는 항상 응답한다 — 배포 자체의 성공 여부와
 AI 연동 성공 여부를 분리해서 확인하기 위함이다.
 
@@ -101,6 +101,6 @@ curl https://<서비스 URL>/
 
 ### 6. (이번 확인 범위 밖) AI 연동 테스트
 위 확인이 끝난 뒤에만 진행한다. Cloud Run 서비스의 **환경변수**에
-`GEMINI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY`를 등록하고,
+`OPENAI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY`를 등록하고,
 `POST /exam-questions`를 `X-API-Key` 헤더와 함께 호출해 실제 AI 기능이
 동작하는지 별도로 확인한다.

@@ -167,30 +167,67 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
   (GAS는 `Logger.log()`, ai-server는 서버 로그). AI 기능이 실패해도 배포·목차
   추출 등 나머지 흐름은 그대로 진행되어야 한다(AI 기능은 부가 기능 취급).
 
-### 마이그레이션 완료 - 실시간 설문 의견형 결과 요약
-- `finishSurvey()` → `summarizeOpinions_()`(`system-b-dashboard/Code.js`)로
-  전환 완료. GAS가 OpenAI를 직접 호출하던 `buildOpinionPrompt_()`/`callAI_()`
-  (`OPENAI_KEY` 스크립트 속성 직접 사용)는 제거됐고, 이제 시험문제 생성과
-  동일한 패턴으로 ai-server의 `POST /opinion-summary`를 `UrlFetchApp`으로
-  호출한다(`AI_SERVER_URL`/`AI_SERVER_KEY` 사용). **다만 ai-server 쪽
-  `/opinion-summary` 엔드포인트 자체는 아직 구현 전이다** — GAS 쪽만
-  선반영된 상태라, 서버 배포 전까지는 호출이 항상 실패로 처리돼 아래 흡수
-  경로를 탄다.
+### 실시간 설문 의견형 결과 요약 - 구현 완료(2026-08-01)
+- `finishSurvey()` → `summarizeOpinions_()`(`system-b-dashboard/Code.js`)가
+  ai-server의 `POST /opinion-summary`를 호출하고(`AI_SERVER_URL`/
+  `AI_SERVER_KEY`, 시험문제 생성과 동일한 패턴), ai-server 쪽
+  `chains/opinion_summarizer.py`가 OpenAI로 요약을 생성하는 것까지
+  end-to-end로 동작 확인됨. 답변 결합은 GAS 쪽에서 미리 처리한다 -
+  `summarizeOpinions_()`가 답변 배열을 `\n---\n` 구분자로 이어붙여
+  `answers_text` 단일 문자열로 만들어 보낸다(ai-server는 다시 합칠 필요 없음).
+- 프롬프트는 실기기 테스트를 여러 차례 거치며 다듬어짐 - 무의미한 입력에도
+  긍정적 분위기로 지어내는 문제, 답변을 개조식으로 나열하는 문제, 응답
+  건수를 잘못 세는 문제를 차례로 겪고 수정함. 현재 규칙(`ai-server/chains/
+  opinion_summarizer.py`): 답변에 없는 내용은 절대 지어내지 않는다,
+  해석 가능한 답변이 하나도 없으면 그대로 그렇게만 답한다, 건수·인원수를
+  구체적 숫자로 언급하지 않는다, 다수 의견/전반적 분위기/유독 부정적인
+  답변(있을 때만) 세 가지만 자연스러운 한 문단으로 요약한다.
 - 이 기능은 다른 AI 기능과 달리 실패 시 "AI 크레딧 필요" 모달을 띄우지
   않는다. 이미 수집된 학생 응답은 요약 성공 여부와 무관하게 항상 확인할 수
   있어야 하므로, `summarizeOpinions_()`가 `null`을 반환하면(AI_MODE 꺼짐·
   서버 설정 누락·요청 실패·응답 없음 등 원인 불문) 화면 상단에 "AI 서버
   접근 불가로 답변 원문을 표시합니다" 안내와 함께 학생 답변 원문 전체를
-  그대로 나열한다(`system-b-dashboard/Dashboard.html`의 `renderSurveyResult()`).
+  그대로 나열한다. 요약이 성공했을 때도 AI 요약 박스 아래에 "전체 답변"
+  이름으로 원문 전체를 항상 같이 보여준다(`system-b-dashboard/Dashboard.html`
+  의 `renderSurveyResult()`). 답변이 0건이면 AI를 호출하지 않고 "제출된
+  답변이 없습니다"라고만 표시한다(AI 서버 접근 불가 메시지와 구분).
+- 설문 결과는 더 이상 종료 시 자동 저장되지 않는다. 결과 모달에서 강사가
+  **[설문결과 저장]** 또는 **[결과를 저장하지 않고 종료]** 중 하나를 반드시
+  선택해야 닫힌다(`saveSurveyResult()`/`discardSurveyResult()` in Code.js,
+  publish-engine의 `finalizeSurveyResult()`/`discardSurveyQuestion()` in
+  Survey.js). 저장하지 않으면 작업 테이블(`survey_questions`,
+  `survey_temp_answers`)만 정리되고 `survey_results`에는 아무것도 안 남는다.
+
+### 모델 제공자 정책(2026-08-01 변경): Gemini 제거, 전부 OpenAI로 통일
+- 시험문제 생성이 쓰던 Gemini(`langchain-google-genai`)를 걷어내고 OpenAI로
+  이관함 - `requirements.txt`에서 `langchain-google-genai` 제거, `GEMINI_KEY`/
+  `GEMINI_MODEL` 환경변수도 더 이상 쓰지 않음(Cloud Run에서 지워도 됨).
+- 두 엔드포인트(`/exam-questions`, `/opinion-summary`) 모두
+  `ai-server/llm_provider.py`의 `get_openai_llm(temperature=0)` 하나를
+  공용으로 써서 LangChain `ChatOpenAI` 인스턴스를 만든다 - 새 AI 기능
+  (강의자료 요약·이해도 보고서 등)을 추가할 때도 이 함수를 그대로 재사용할 것.
+- 실제 쓰는 모델은 Cloud Run 환경변수 `OPENAI_MODEL`로 정한다(미설정 시
+  코드 기본값 `gpt-4o`) - 값만 바꾸고 새 리비전을 배포하면 코드 수정·재빌드
+  없이 모델을 바꿀 수 있다.
+- **확인된 사실(2026-08-01, Cloud Run 콘솔 실기기 확인)**: 이 문서에 예전에
+  "`GEMINI_KEY`/`SUPABASE_URL`/`SUPABASE_KEY`/`AI_SERVER_KEY` 등록 완료"라고
+  적혀 있었지만, 실제 Cloud Run 환경변수에는 `OPENAI_KEY`와 `AI_SERVER_KEY`
+  둘만 등록되어 있었다(문서와 실제가 어긋나 있던 것으로 확인·정정). Gemini를
+  더 이상 안 쓰므로 `GEMINI_KEY`는 필요 없지만, `SUPABASE_URL`/`SUPABASE_KEY`는
+  `/exam-questions`가 `supabase_client.get_slide_text()`로 슬라이드 본문을
+  읽어오는 데 여전히 필요한데 아직 미등록 상태다 - publish-engine 스크립트
+  속성에 있는 것과 같은 값을 Cloud Run 환경변수에도 등록해야 시험문제
+  생성이 정상 동작한다(GAS 쪽 스크립트 속성과 ai-server의 Cloud Run
+  환경변수는 완전히 별도 저장소라 값을 각각 등록해야 함).
 
 ### 기능별 ai-server 엔드포인트 현황
 | 기능 | 상태 | 엔드포인트/경로 | 모델 제공자 |
 |---|---|---|---|
-| 시험문제 생성 | 구현됨 | `POST /exam-questions` (`ai-server/main.py`) | Gemini(`gemini-2.0-flash`, LangChain) — UI의 ChatGPT/Claude 옵션은 아직 비활성화 |
-| 실시간 설문 - 의견형 결과 요약 | GAS 호출 코드는 구현됨, ai-server 엔드포인트는 미구현 | `POST /opinion-summary` (예정, 아직 `ai-server/main.py`에 없음) | OpenAI(모델명 미정) — `OPENAI_KEY`를 Cloud Run 환경변수로 등록·배포까지 완료(2026-07-31), `os.environ.get("OPENAI_KEY")`로 읽는 코드만 아직 미구현 |
-| 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
-| 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | 미정 |
-| 가상질문 생성 / 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | 미정 |
+| 시험문제 생성 | 구현됨 | `POST /exam-questions` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain) — UI의 모델 선택 라디오는 제거됨(선택지가 하나뿐이라) |
+| 실시간 설문 - 의견형 결과 요약 | 구현됨 | `POST /opinion-summary` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain) |
+| 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
+| 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
+| 가상질문 생성 / 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | OpenAI 예정 |
 
 ### 기능
 - **강의자료 요약** (1페이지, 배포 시 생성해 JSON에 저장 → 뷰어 즉시 열람)

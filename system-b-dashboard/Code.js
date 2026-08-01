@@ -370,10 +370,9 @@ function isAiEnabled() {
  * @param {string} keyword
  * @param {string} questionType  'multiple_choice' | 'short_answer'
  * @param {number} count
- * @param {string} provider  'gemini' | 'chatgpt' | 'claude' (현재는 'gemini'만 지원)
  * @return {Object} { questions: [...] } 또는 실패 시 { error: true }
  */
-function generateExamQuestions(keyword, questionType, count, provider) {
+function generateExamQuestions(keyword, questionType, count) {
   try {
     if (!isAiEnabled()) {
       return { error: true };
@@ -392,8 +391,7 @@ function generateExamQuestions(keyword, questionType, count, provider) {
       payload: JSON.stringify({
         keyword: keyword,
         question_type: questionType,
-        count: count,
-        provider: provider || 'gemini'
+        count: count
       }),
       muteHttpExceptions: true
     });

@@ -4,14 +4,11 @@
 파싱 가능한 형태로 결과를 받는다.
 """
 
-import os
 from typing import Literal, Optional
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
-GEMINI_KEY = os.environ.get("GEMINI_KEY", "")
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+from llm_provider import get_openai_llm
 
 
 class ExamQuestion(BaseModel):
@@ -50,24 +47,12 @@ _TYPE_INSTRUCTIONS = {
 }
 
 
-def _get_llm(provider: str):
-    """provider 이름으로 LangChain 챗모델 인스턴스를 만든다.
-    지금은 'gemini'만 실제 지원 - 'chatgpt'/'claude'는 나중에 langchain-openai/
-    langchain-anthropic을 추가하면서 여기에 분기만 추가하면 된다."""
-    if provider == "gemini":
-        if not GEMINI_KEY:
-            raise RuntimeError("GEMINI_KEY 환경변수가 설정되어 있지 않습니다.")
-        return ChatGoogleGenerativeAI(model=MODEL_NAME, google_api_key=GEMINI_KEY)
-    raise ValueError(f"아직 지원하지 않는 모델입니다: {provider}")
-
-
 def generate(
     slide_text: str,
     question_type: Literal["multiple_choice", "short_answer"],
     count: int,
-    provider: str = "gemini",
 ) -> list[ExamQuestion]:
-    llm = _get_llm(provider)
+    llm = get_openai_llm()
     structured_llm = llm.with_structured_output(ExamQuestionList)
 
     prompt = _PROMPT_TEMPLATE.format(

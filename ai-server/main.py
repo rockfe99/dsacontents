@@ -28,7 +28,6 @@ class ExamRequest(BaseModel):
     keyword: str
     question_type: Literal["multiple_choice", "short_answer"]
     count: int
-    provider: Literal["gemini", "chatgpt", "claude"] = "gemini"
 
 
 class OpinionSummaryRequest(BaseModel):
@@ -46,11 +45,9 @@ def exam_questions(req: ExamRequest, x_api_key: str = Header(default="")):
         raise HTTPException(status_code=404, detail="슬라이드 내용을 찾을 수 없습니다.")
 
     try:
-        questions = generate_exam_questions(
-            slide_text, req.question_type, req.count, req.provider
-        )
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err))
+        questions = generate_exam_questions(slide_text, req.question_type, req.count)
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
 
     return {"questions": [q.model_dump() for q in questions]}
 

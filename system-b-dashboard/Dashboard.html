@@ -434,20 +434,6 @@
       </div>
       <div class="modal-body">
         <div class="field">
-          <label>AI 모델</label>
-          <div class="radio-group">
-            <label class="radio-option">
-              <input type="radio" name="examProvider" value="gemini" checked> Gemini
-            </label>
-            <label class="radio-option" style="color:var(--ink-soft);">
-              <input type="radio" name="examProvider" value="chatgpt" disabled> ChatGPT (준비 중)
-            </label>
-            <label class="radio-option" style="color:var(--ink-soft);">
-              <input type="radio" name="examProvider" value="claude" disabled> Claude (준비 중)
-            </label>
-          </div>
-        </div>
-        <div class="field">
           <label>문제유형</label>
           <div class="radio-group">
             <label class="radio-option">
@@ -631,7 +617,6 @@
       if (!enabled) { showAiCreditModal(); return; }
       currentExamKeyword = key;
       document.getElementById('examCount').value = 3;
-      document.querySelector('input[name="examProvider"][value="gemini"]').checked = true;
       document.querySelector('input[name="examType"][value="multiple_choice"]').checked = true;
       var btn = document.getElementById('examGenerateBtn');
       btn.disabled = false;
@@ -645,7 +630,6 @@
   }
 
   function generateExam() {
-    var provider = document.querySelector('input[name="examProvider"]:checked').value;
     var type = document.querySelector('input[name="examType"]:checked').value;
     var count = parseInt(document.getElementById('examCount').value, 10);
     if (!count || count < 1) { showToast('개수를 올바르게 입력하세요'); return; }
@@ -668,7 +652,7 @@
         closeExamCreate();
         showAiCreditModal();
       })
-      .generateExamQuestions(currentExamKeyword, type, count, provider);
+      .generateExamQuestions(currentExamKeyword, type, count);
   }
 
   /** 생성된 시험문제를 복사해서 쓰기 좋은 형태로 새 창에 출력한다(보관은 안 함, 일회성). */
