@@ -157,15 +157,51 @@ def _generate_core(slide_text: str, survey_rows: list[dict], persona_groups: lis
     return result
 
 
-def _generate_currency_review(slide_text: str) -> Optional[str]:
-    """웹검색 기반 "AI 추가 의견". 부가 기능이므로 어떤 이유로든(타임아웃·미지원
-    모델·API 오류·레이트리밋 등) 최종 실패하면 조용히 None을 반환한다 - 호출부가
-    이 결과 없이도 나머지 평가를 그대로 반환할 수 있어야 한다.
+def _extract_text_content(content) -> str:
+    """LangChain 메시지의 .content를 텍스트로 정규화한다. 일반 호출은 content가
+    보통 문자열이지만, Responses API로 웹검색 같은 호스티드 도구를 쓰면 텍스트
+    블록과 도구 호출/검색 결과 블록이 섞인 리스트로 오는 경우가 실기기에서
+    확인됨(예: [{"type": "text", "text": "..."}, {"type": "web_search_call", ...}]) -
+    문자열 타입의 텍스트 블록만 골라 이어붙인다."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "".join(parts)
+    return ""
 
-    실기기 테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려
-    RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통 1~2초
-    후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회까지
-    짧게 대기 후 재시도한다."""
+
+def _generate_currency_review(slide_text: str) -> Optional[str]:
+    """웹검색 기반 "AI 추가 의견". 이 함수는 절대 예외를 던지지 않는다 - 안쪽
+    로직이 어디서 어떤 이유로 실패하든(레이트리밋·타임아웃·미지원 모델·응답
+    형태 변경 등, 심지어 아직 겪어보지 못한 새로운 오류라도) 이 함수 바깥의
+    generate()는 항상 이 호출이 성공적으로 반환된다고 믿을 수 있어야 한다 -
+    부가 기능 하나의 실패가 근거 명시·구조 검토 등 핵심 평가 전체를 함께
+    끌고 내려가면 안 되기 때문(과거 실기기 테스트에서 실제로 이 함수 안의
+    예외가 안 잡혀서 전체 요청이 500으로 죽고, 화면에는 원인과 무관하게
+    "AI 크레딧 필요" 안내만 뜨며 이미 만들어진 핵심 평가까지 통째로 날아간
+    적이 있었음 - 그래서 아래 로직 전체를 최상위 try/except로 한 번 더
+    감싼다). 개별 단계(호출 자체, 응답 파싱)에서도 각각 방어하지만, 그건
+    로그를 더 구체적으로 남기기 위함이고 최종 안전망은 이 바깥쪽 try다."""
+    try:
+        return _try_generate_currency_review(slide_text)
+    except Exception as err:
+        logger.warning("강의자료 평가 - 웹검색 AI 추가 의견 처리 중 예상치 못한 오류(무시하고 계속 진행): %r", err)
+        return None
+
+
+def _try_generate_currency_review(slide_text: str) -> Optional[str]:
+    """실기기 테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에
+    걸려 RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통
+    1~2초 후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회
+    까지 짧게 대기 후 재시도한다."""
     prompt = _CURRENCY_PROMPT_TEMPLATE.format(slide_text=slide_text)
     result = None
 
@@ -178,9 +214,6 @@ def _generate_currency_review(slide_text: str) -> Optional[str]:
             break
         except Exception as err:
             is_last_attempt = attempt == _CURRENCY_MAX_ATTEMPTS
-            # 부가 기능이라 사용자에게는 이 섹션만 조용히 빠지지만("지적할 내용
-            # 없음"과 구분이 안 되는 문제가 있었음), 원인 파악은 서버 로그로
-            # 남긴다(CLAUDE.md 규칙 10).
             logger.warning(
                 "강의자료 평가 - 웹검색 AI 추가 의견 생성 실패(%d/%d회차)%s: %r",
                 attempt, _CURRENCY_MAX_ATTEMPTS,
@@ -198,7 +231,7 @@ def _generate_currency_review(slide_text: str) -> Optional[str]:
             # 되는 문제가 있어 이렇게 직접 shutdown(wait=False)를 쓴다).
             executor.shutdown(wait=False)
 
-    text = (result.content or "").strip() if result is not None and hasattr(result, "content") else ""
+    text = _extract_text_content(result.content).strip() if result is not None else ""
     if not text or text.upper() == "NONE":
         return None
     return text

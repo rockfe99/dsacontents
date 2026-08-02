@@ -669,6 +669,25 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
     여러 강사가 동시에 AI 기능을 쓰면 다른 기능에서도 같은 종류의 순간적
     레이트리밋이 발생할 수 있다는 점은 참고할 것(현재는 이 기능에만
     재시도 로직이 있음 - 다른 기능도 반복 발생하면 같은 패턴 적용 검토).
+  - **버그 수정(2026-08-02, 재시도 통과 후 실기기에서 추가로 발견)**: 레이트
+    리밋 재시도까지는 통과했는데, 그다음 응답 파싱에서 다시 죽는 문제가
+    있었다 - Responses API로 웹검색 도구를 쓰면 `AIMessage.content`가 항상
+    문자열이 아니라 텍스트 블록과 도구 호출/검색 결과 블록이 섞인
+    **리스트**로 오는 경우가 있는데(예: `[{"type": "text", "text": "..."},
+    {"type": "web_search_call", ...}]`), 코드가 문자열이라고만 가정하고
+    `.strip()`을 바로 호출해 `AttributeError: 'list' object has no
+    attribute 'strip'`로 500 에러가 났다. `_extract_text_content()`를
+    추가해 문자열/리스트 두 형태 다 처리하도록 고쳤다.
+  - **구조 보강(2026-08-02)**: 위 두 버그 다 "이 지점에서 날 수 있는 오류"를
+    하나씩 막는 식이었는데, 사용자가 "웹검색 쪽에서 오류가 나도 근거 명시·
+    구조 검토 같은 핵심 평가는 항상 살아야 한다"고 짚어줘서 구조를 한 번 더
+    보강함 - `_generate_currency_review()`를 얇은 wrapper로 만들고 실제
+    로직은 `_try_generate_currency_review()`로 옮긴 뒤, wrapper가 그
+    호출 전체를 최상위 try/except로 감싼다. 그 결과 `_generate_currency_review()`는
+    **안쪽에서 무슨 오류가 나든(아직 겪어보지 못한 새로운 오류 포함) 예외를
+    절대 던지지 않고 항상 `None`으로 수렴**하도록 구조적으로 보장됨 -
+    앞으로 웹검색 쪽에서 세 번째 종류의 오류가 나도 개별 패치 없이
+    "그 섹션만 조용히 빠짐"으로 자동 처리된다.
 - **DB**: `lecture_evaluations` 테이블(`DB구조.sql` 6-1번 섹션) 신규 생성
   완료(2026-08-02, 사용자가 직접 Supabase SQL Editor에서 실행). 컬럼:
   `evidence_basis`(근거 스냅샷) · `structure_review` · `learner_signal_review`
