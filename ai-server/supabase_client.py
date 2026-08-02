@@ -65,3 +65,38 @@ def get_persona(persona_id: str) -> dict | None:
     res.raise_for_status()
     rows = res.json()
     return rows[0] if rows else None
+
+
+def get_virtual_questions(keyword: str, exam_level: str) -> list[dict]:
+    """그 키워드로 생성되어 있는 가상질문 결과 중, 요청한 시험 난이도(exam_level)와
+    매칭되는 페르소나(virtual_question_personas.exam_level)의 결과만 모아
+    반환한다([{batch, question}, ...]). 시험문제 생성(/exam-questions)이
+    "문제수준과 학생에이전트의 수준을 맞춰서" 참고자료로 쓴다.
+    매칭되는 페르소나가 없거나 그 페르소나로 아직 가상질문을 생성하지 않았으면
+    빈 리스트(레벨 안 맞는 참고자료를 섞어 쓰지 않는다 - 없으면 참고자료 없이 진행)."""
+    _require_config()
+    headers = _headers()
+
+    persona_url = f"{SUPABASE_URL}/rest/v1/virtual_question_personas"
+    persona_params = {"exam_level": f"eq.{exam_level}", "select": "persona_id"}
+    persona_res = requests.get(persona_url, params=persona_params, headers=headers, timeout=15)
+    persona_res.raise_for_status()
+    persona_ids = [row["persona_id"] for row in persona_res.json()]
+    if not persona_ids:
+        return []
+
+    url = f"{SUPABASE_URL}/rest/v1/virtual_questions"
+    params = {
+        "lecture_keyword": f"eq.{keyword}",
+        "persona_id": f"in.({','.join(persona_ids)})",
+        "select": "questions",
+    }
+
+    res = requests.get(url, params=params, headers=headers, timeout=15)
+    res.raise_for_status()
+    rows = res.json()
+
+    flattened: list[dict] = []
+    for row in rows:
+        flattened.extend(row.get("questions") or [])
+    return flattened

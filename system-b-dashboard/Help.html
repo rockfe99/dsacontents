@@ -227,10 +227,41 @@
       </div>
 
       <div class="help-section">
-        <h2><span class="num">7</span>가상질문 생성 · 강의자료 평가
+        <h2><span class="num">7</span>가상질문 생성
+          <span class="badge">AI</span></h2>
+        <p>목록의 <span class="ui-ref">가상질문 생성</span> 버튼으로, 서로 다른
+          배경·성격을 가진 가상의 학생이 강의 슬라이드를 처음부터 읽으면서
+          궁금해할 만한 질문을 AI로 뽑아낸다. 강의자료를 학생 입장에서
+          미리 점검하거나, 시험문제 생성의 참고자료로 활용할 수 있다.</p>
+        <ol class="steps">
+          <li><span class="ui-ref">가상질문 생성</span>을 선택하면 학생 목록이
+            뜬다 — <b>학생1(초심자)</b>부터 <b>학생4(실무 경험자)</b>까지 배경·
+            성격이 서로 다른 네 학생 중 하나를 고른다(각 항목 아래 짧은 설명
+            참고).</li>
+          <li>그 학생으로 이미 생성해 둔 결과가 있으면 재생성 없이 바로
+            불러와 보여준다. 처음 고르는 경우이거나 <span class="ui-ref">다시
+            생성</span>을 선택하면 새로 생성한다(생성 중에는 경과 시간이
+            표시된다).</li>
+          <li>결과는 <b>새 탭</b>으로 열린다 — 선택한 학생의 성격 설명과
+            생성 시각을 맨 위에 표시하고, 그 아래 <b>Part 1 · Part 2 · Part 3</b>
+            (강의 전체를 앞·중간·뒤 구간으로 나눈 것) 순서로 그 구간까지의
+            내용만 근거로 떠올린 질문을 나열한다. 새 탭이 팝업 차단으로
+            안 열렸다면 원래 창에 남은 <span class="ui-ref">새 탭에서 보기</span>
+            버튼으로 다시 열 수 있다.</li>
+        </ol>
+        <p class="note">
+          학생별 결과는 키워드+학생 조합당 최신 1건만 보관되며(과거 이력은
+          쌓이지 않음), <span class="ui-ref">다시 생성</span>을 누르기 전까지는
+          항상 그 결과를 그대로 보여준다. 등록된 강의 슬라이드의 본문 내용을
+          근거로 생성한다(ChatGPT + LangGraph 사용). AI 기능이 꺼져 있거나
+          서버 요청이 실패한 경우에는 오류 안내만 표시된다.
+        </p>
+      </div>
+
+      <div class="help-section">
+        <h2><span class="num">8</span>강의자료 평가
           <span class="badge">AI</span><span class="badge badge-soft">개발중</span></h2>
-        <p>목록의 <span class="ui-ref">가상질문 생성</span>, <span class="ui-ref">강의자료
-          평가</span>는 수정중이다.</p>
+        <p>목록의 <span class="ui-ref">강의자료 평가</span>는 수정중이다.</p>
       </div>
 
     </div>

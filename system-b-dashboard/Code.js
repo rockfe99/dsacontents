@@ -429,17 +429,22 @@ function generateVirtualQuestions(keyword, personaId) {
 
 /**
  * 시험문제 자동생성 - ai-server(Cloud Run, Python+LangChain)를 호출해 문제 목록을
- * 받아온다. slide_contents(그 키워드의 슬라이드 본문)를 근거로 생성된다.
+ * 받아온다. slide_contents(그 키워드의 슬라이드 본문) 전체 범위를 근거로
+ * 생성되며, 그 키워드로 생성된 가상질문 결과(있으면)도 참고자료로 함께
+ * 활용해 학생들이 실제로 많이 질문한 부분 위주로 출제되도록 한다(ai-server
+ * exam_generator.py 쪽에서 처리, 여기서는 keyword만 넘기면 됨).
  * CLAUDE.md 규칙 10: 호출 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정
  * 안내 문구로 흡수하고, 배포·목차 등 나머지 기능에는 영향이 없어야 한다.
  * AI_MODE가 꺼져 있으면 ai-server를 아예 호출하지 않고 바로 에러로 응답한다
  * (화면 쪽 안내 문구는 대시보드가 통일해서 띄운다 - 여기서는 성공/실패만 전달).
+ * 생성된 문제는 저장되지 않는다(일회성 - 화면에서 복사해서 사용).
  * @param {string} keyword
- * @param {string} questionType  'multiple_choice' | 'short_answer'
+ * @param {string} questionType  'multiple_choice' | 'short_answer' | 'essay'
+ * @param {string} level         'beginner' | 'intermediate' | 'advanced'
  * @param {number} count
  * @return {Object} { questions: [...] } 또는 실패 시 { error: true }
  */
-function generateExamQuestions(keyword, questionType, count) {
+function generateExamQuestions(keyword, questionType, level, count) {
   try {
     if (!isAiEnabled()) {
       return { error: true };
@@ -458,6 +463,7 @@ function generateExamQuestions(keyword, questionType, count) {
       payload: JSON.stringify({
         keyword: keyword,
         question_type: questionType,
+        level: level,
         count: count
       }),
       muteHttpExceptions: true

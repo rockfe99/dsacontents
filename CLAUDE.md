@@ -3,6 +3,10 @@
 > 이 파일은 Claude Code가 이 프로젝트의 맥락을 이해하기 위한 설계 문서다.
 > 모든 코드 작업은 이 문서의 아키텍처·규칙을 따른다.
 
+# 언어
+- 모든 응답, 요약(recap), 다음 단계(Next) 문장을 반드시 한국어로 작성한다.
+- 코드 주석과 커밋 메시지도 한국어로 작성한다.
+
 ---
 
 ## 프로젝트 개요
@@ -548,10 +552,46 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
     (활성 페르소나 1건, prompt 포함) 추가 — `get_slide_text()`는
     `get_slide_segments()`를 재사용하도록 리팩터링(동작 변화 없음).
   - `requirements.txt`에 `langgraph` 추가.
-- **미확인 항목**: Cloud Run에 실제 배포 후 대시보드에서 실기기로
-  "가상질문 생성" 버튼을 눌러 학생 선택 → 생성 → 결과 표시 → 다시 생성
-  전체 흐름 확인 필요(다른 AI 기능들처럼 아직 이 세션에서는 코드
-  작성까지만 완료, 배포·실기기 확인은 별도 단계).
+- **실기기 테스트 완료(2026-08-01)**: Cloud Run 배포 후 대시보드에서 학생
+  선택 → 캐시 확인 → 생성(경과시간 표시) → 새 탭 결과 표시 → 다시 생성까지
+  전체 흐름 정상 동작 확인됨. `system-b-dashboard/Help.html`에도 사용법
+  섹션(7번, [[가상질문 생성]])을 추가함.
+
+### 시험문제 생성 - 가상질문 레벨 매칭 추가(2026-08-02)
+기존 시험문제 생성(`POST /exam-questions`)에 문제수준(초급/중급/고급)과
+서술형 유형이 이미 반영돼 있었는데, 참고자료로 쓰는 가상질문을 "문제수준과
+학생에이전트의 수준을 맞춰서" 골라 쓰는 부분이 빠져 있어 추가했다.
+- **레벨-페르소나 매칭**: `virtual_question_personas`에 `exam_level`
+  컬럼 추가(`DB구조.sql`) - 초심자→초급, 비전공(따라가는 중)→중급,
+  전공이론파·실무경험자→고급. 이해도 서열이 아니라 "그 페르소나가 실제로
+  하는 질문의 성격이 어느 시험 수준과 어울리는지"로 정함(예: 실무경험자는
+  이해도는 낮을 수 있지만 질문 자체는 종합응용형이라 고급).
+  `ai-server/supabase_client.py`의 `get_virtual_questions(keyword, exam_level)`이
+  이 컬럼으로 먼저 매칭되는 persona_id를 찾고, 그 persona_id의 결과만
+  참고자료로 넘긴다 - 매칭되는 페르소나가 없거나 그 페르소나로 아직 가상질문을
+  생성 안 했으면 빈 리스트(레벨 안 맞는 참고자료를 섞어 쓰지 않고, 참고자료
+  없이 슬라이드 내용만으로 진행). 문제 자체의 난이도는 참고자료 유무와
+  무관하게 `exam_generator.py`의 `_LEVEL_INSTRUCTIONS`가 슬라이드 내용을
+  근거로 항상 적용한다.
+- 이 세션에서 함께 고친 기존 버그 2건: (1) `Dashboard.html`의
+  `generateExam()`이 `examLevel` 라디오값을 안 읽고 서버 호출에 안 넘기던
+  문제, (2) 새 탭 결과 화면(`openExamResultWindow`)에 "저장되지 않으니
+  복사해서 사용하라"는 안내문이 없던 문제.
+- **DB구조.sql 실행 필요**: 기존 Supabase 프로젝트는 이미
+  `virtual_question_personas`가 있는 상태라, `exam_level` 컬럼 추가는
+  전체 파일 재실행이 아니라 아래 ALTER/UPDATE만 SQL Editor에서 실행하면
+  된다(`DB구조.sql` 자체는 새 프로젝트를 처음부터 만들 때 기준으로 이미
+  `exam_level` 포함해서 갱신해둠).
+  ```sql
+  alter table virtual_question_personas
+    add column exam_level text
+      check (exam_level in ('beginner','intermediate','advanced'));
+
+  update virtual_question_personas set exam_level = 'beginner'     where persona_id = 'beginner';
+  update virtual_question_personas set exam_level = 'intermediate' where persona_id = 'casual';
+  update virtual_question_personas set exam_level = 'advanced'     where persona_id = 'major_theory';
+  update virtual_question_personas set exam_level = 'advanced'     where persona_id = 'major_practice';
+  ```
 
 ### 미착수
 - `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.

@@ -450,7 +450,24 @@
               <input type="radio" name="examType" value="multiple_choice" checked> 객관식
             </label>
             <label class="radio-option">
-              <input type="radio" name="examType" value="short_answer"> 단답형
+              <input type="radio" name="examType" value="short_answer"> 주관식
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="examType" value="essay"> 서술형
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <label>문제수준</label>
+          <div class="radio-group">
+            <label class="radio-option">
+              <input type="radio" name="examLevel" value="beginner" checked> 초급
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="examLevel" value="intermediate"> 중급
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="examLevel" value="advanced"> 고급
             </label>
           </div>
         </div>
@@ -860,6 +877,7 @@
       currentExamKeyword = key;
       document.getElementById('examCount').value = 3;
       document.querySelector('input[name="examType"][value="multiple_choice"]').checked = true;
+      document.querySelector('input[name="examLevel"][value="beginner"]').checked = true;
       var btn = document.getElementById('examGenerateBtn');
       btn.disabled = false;
       btn.textContent = '생성';
@@ -873,6 +891,7 @@
 
   function generateExam() {
     var type = document.querySelector('input[name="examType"]:checked').value;
+    var level = document.querySelector('input[name="examLevel"]:checked').value;
     var count = parseInt(document.getElementById('examCount').value, 10);
     if (!count || count < 1) { showToast('개수를 올바르게 입력하세요'); return; }
 
@@ -894,7 +913,7 @@
         closeExamCreate();
         showAiCreditModal();
       })
-      .generateExamQuestions(currentExamKeyword, type, count);
+      .generateExamQuestions(currentExamKeyword, type, level, count);
   }
 
   /** 생성된 시험문제를 복사해서 쓰기 좋은 형태로 새 창에 출력한다(보관은 안 함, 일회성). */
@@ -925,6 +944,7 @@
         '</ol>';
 
       body =
+        '<p class="notice">이 문제는 저장되지 않습니다. 이 화면에서 복사해서 사용하세요.</p>' +
         '<h2>시험문제</h2>' + questionsHtml +
         '<hr>' +
         '<h2>정답</h2>' + answerHtml;
@@ -939,6 +959,7 @@
       'h2{font-size:16px;border-bottom:2px solid #2563a8;padding-bottom:6px;margin-top:32px;}' +
       '.q{margin-bottom:16px;}' +
       'ol{margin:4px 0 0 0;padding-left:24px;}' +
+      '.notice{background:#fff3cd;color:#7a5c00;padding:10px 14px;border-radius:6px;font-size:13px;}' +
       '</style></head><body>' +
       body +
       '</body></html>'
