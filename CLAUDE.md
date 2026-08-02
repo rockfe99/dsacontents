@@ -654,12 +654,21 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
     이미 `result(timeout=...)`로 포기한 뒤에도 스레드가 실제로 끝날
     때까지 다시 블로킹되는 문제가 있어, `executor.shutdown(wait=False)`를
     직접 호출하는 방식으로 피했다.
-  - **미확인 항목**: `use_responses_api=True` + `bind_tools([{"type":
-    "web_search_preview"}])` 조합이 실제 배포된 `langchain-openai` 버전에서
-    정확히 이 형태로 동작하는지는 아직 실기기로 확인 전이다(문서 기반
-    설계). 다만 실패해도 위 설계대로 그 섹션만 조용히 빠지므로, 이 부분이
-    깨져 있어도 나머지 평가 기능은 정상 동작해야 한다 - Cloud Run 배포 후
-    이 섹션이 실제로 채워지는지 별도 확인 필요.
+  - **확인된 사실(2026-08-02, Cloud Run 로그 실기기 확인)**: `use_responses_api=True`
+    + `bind_tools([{"type": "web_search_preview"}])` 조합 자체는 정상
+    동작한다(OpenAI가 요청을 정상적으로 받아 `RateLimitError(429)`로
+    응답한 것으로 확인됨 - 클라이언트 쪽 요청 형식 문제였다면 이런 응답
+    자체가 안 옴). 대신 실제로 겪은 문제는 **레이트리밋**이었다: 핵심 평가
+    호출이 슬라이드 143장 전체 텍스트로 이미 토큰을 쓴 직후, 웹검색 호출도
+    같은 전체 텍스트를 또 보내면서 조직 분당 토큰 한도(TPM 30,000)를
+    넘김(사용 11,668 + 요청 18,845). OpenAI가 보통 1~2초 후 재시도를
+    권하는 순간적인 초과라, 짧게 대기(`_CURRENCY_RETRY_DELAY`, 3초) 후
+    1회 재시도하는 로직을 추가해 대응함(`_generate_currency_review()`).
+    이 TPM 한도는 이 프로젝트의 gpt-4o를 쓰는 모든 기능(시험문제 생성·
+    의견 요약·가상질문 생성·강의자료 평가)이 조직 단위로 공유하므로,
+    여러 강사가 동시에 AI 기능을 쓰면 다른 기능에서도 같은 종류의 순간적
+    레이트리밋이 발생할 수 있다는 점은 참고할 것(현재는 이 기능에만
+    재시도 로직이 있음 - 다른 기능도 반복 발생하면 같은 패턴 적용 검토).
 - **DB**: `lecture_evaluations` 테이블(`DB구조.sql` 6-1번 섹션) 신규 생성
   완료(2026-08-02, 사용자가 직접 Supabase SQL Editor에서 실행). 컬럼:
   `evidence_basis`(근거 스냅샷) · `structure_review` · `learner_signal_review`

@@ -14,11 +14,15 @@
    "실제 학생 응답"과 "가상 학생 질문"을 명확히 구분해서 언급하도록 프롬프트에
    명시(섞어서 마치 둘 다 실제인 것처럼 쓰지 않게).
 4) currency_review - 웹검색 기반 "AI 추가 의견"(최신 기술/버전 검토). 부가
-   기능이라 실패해도(타임아웃·미지원 모델 등) 조용히 None으로 두고 나머지
-   리포트는 정상 반환한다(CLAUDE.md 규칙 10과 동일 원칙).
+   기능이라 최종 실패해도(레이트리밋·타임아웃·미지원 모델 등) 조용히
+   None으로 두고 나머지 리포트는 정상 반환한다(CLAUDE.md 규칙 10과 동일
+   원칙). 핵심 평가 호출 직후 같은 슬라이드 전체 텍스트를 또 보내면서
+   조직 분당 토큰 한도(TPM)에 걸리는 순간적인 429가 실기기에서 관측돼,
+   짧게 대기 후 1회 재시도하는 로직이 들어있다.
 """
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Optional
 
@@ -29,6 +33,12 @@ from llm_provider import get_openai_llm, get_web_search_llm
 logger = logging.getLogger(__name__)
 
 _CURRENCY_SEARCH_TIMEOUT = 25
+_CURRENCY_MAX_ATTEMPTS = 2
+# 핵심 평가 호출이 슬라이드 전체 텍스트로 이미 토큰을 쓴 직후라, 웹검색 호출이
+# 같은 텍스트를 또 보내면서 조직 분당 토큰 한도(TPM)에 걸려 429가 나는 경우가
+# 실제로 관측됨 - OpenAI가 에러에 함께 알려주는 재시도 대기 시간(보통 1~2초)보다
+# 넉넉하게 잡아 한 번만 재시도한다.
+_CURRENCY_RETRY_DELAY = 3
 
 
 class _CoreEvaluation(BaseModel):
@@ -149,28 +159,46 @@ def _generate_core(slide_text: str, survey_rows: list[dict], persona_groups: lis
 
 def _generate_currency_review(slide_text: str) -> Optional[str]:
     """웹검색 기반 "AI 추가 의견". 부가 기능이므로 어떤 이유로든(타임아웃·미지원
-    모델·API 오류 등) 실패하면 조용히 None을 반환한다 - 호출부가 이 결과 없이도
-    나머지 평가를 그대로 반환할 수 있어야 한다."""
-    executor = ThreadPoolExecutor(max_workers=1)
-    try:
-        llm = get_web_search_llm(timeout=_CURRENCY_SEARCH_TIMEOUT)
-        prompt = _CURRENCY_PROMPT_TEMPLATE.format(slide_text=slide_text)
-        future = executor.submit(llm.invoke, prompt)
-        result = future.result(timeout=_CURRENCY_SEARCH_TIMEOUT)
-    except Exception as err:
-        # 부가 기능이라 사용자에게는 이 섹션만 조용히 빠지지만("지적할 내용 없음"과
-        # 구분이 안 되는 문제가 있었음), 원인 파악은 서버 로그로 남긴다(CLAUDE.md 규칙 10).
-        logger.warning("강의자료 평가 - 웹검색 AI 추가 의견 생성 실패(무시하고 계속 진행): %r", err)
-        return None
-    finally:
-        # wait=False: 응답이 이미 왔거나 타임아웃으로 포기한 뒤에는 스레드가
-        # 아직 안 끝났어도 여기서 기다리지 않고 바로 반환한다(ThreadPoolExecutor를
-        # with 블록으로 쓰면 __exit__가 shutdown(wait=True)를 호출해서, 이미
-        # result(timeout=...)로 포기한 뒤에도 스레드가 끝날 때까지 도로 블로킹
-        # 되는 문제가 있어 이렇게 직접 shutdown(wait=False)를 쓴다).
-        executor.shutdown(wait=False)
+    모델·API 오류·레이트리밋 등) 최종 실패하면 조용히 None을 반환한다 - 호출부가
+    이 결과 없이도 나머지 평가를 그대로 반환할 수 있어야 한다.
 
-    text = (result.content or "").strip() if hasattr(result, "content") else ""
+    실기기 테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려
+    RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통 1~2초
+    후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회까지
+    짧게 대기 후 재시도한다."""
+    prompt = _CURRENCY_PROMPT_TEMPLATE.format(slide_text=slide_text)
+    result = None
+
+    for attempt in range(1, _CURRENCY_MAX_ATTEMPTS + 1):
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            llm = get_web_search_llm(timeout=_CURRENCY_SEARCH_TIMEOUT)
+            future = executor.submit(llm.invoke, prompt)
+            result = future.result(timeout=_CURRENCY_SEARCH_TIMEOUT)
+            break
+        except Exception as err:
+            is_last_attempt = attempt == _CURRENCY_MAX_ATTEMPTS
+            # 부가 기능이라 사용자에게는 이 섹션만 조용히 빠지지만("지적할 내용
+            # 없음"과 구분이 안 되는 문제가 있었음), 원인 파악은 서버 로그로
+            # 남긴다(CLAUDE.md 규칙 10).
+            logger.warning(
+                "강의자료 평가 - 웹검색 AI 추가 의견 생성 실패(%d/%d회차)%s: %r",
+                attempt, _CURRENCY_MAX_ATTEMPTS,
+                "" if is_last_attempt else (" - %d초 후 재시도" % _CURRENCY_RETRY_DELAY),
+                err,
+            )
+            if is_last_attempt:
+                return None
+            time.sleep(_CURRENCY_RETRY_DELAY)
+        finally:
+            # wait=False: 응답이 이미 왔거나 타임아웃으로 포기한 뒤에는 스레드가
+            # 아직 안 끝났어도 여기서 기다리지 않고 바로 넘어간다(ThreadPoolExecutor를
+            # with 블록으로 쓰면 __exit__가 shutdown(wait=True)를 호출해서, 이미
+            # result(timeout=...)로 포기한 뒤에도 스레드가 끝날 때까지 도로 블로킹
+            # 되는 문제가 있어 이렇게 직접 shutdown(wait=False)를 쓴다).
+            executor.shutdown(wait=False)
+
+    text = (result.content or "").strip() if result is not None and hasattr(result, "content") else ""
     if not text or text.upper() == "NONE":
         return None
     return text
