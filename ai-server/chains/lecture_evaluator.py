@@ -18,12 +18,15 @@
    리포트는 정상 반환한다(CLAUDE.md 규칙 10과 동일 원칙).
 """
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
 from llm_provider import get_openai_llm, get_web_search_llm
+
+logger = logging.getLogger(__name__)
 
 _CURRENCY_SEARCH_TIMEOUT = 25
 
@@ -154,7 +157,10 @@ def _generate_currency_review(slide_text: str) -> Optional[str]:
         prompt = _CURRENCY_PROMPT_TEMPLATE.format(slide_text=slide_text)
         future = executor.submit(llm.invoke, prompt)
         result = future.result(timeout=_CURRENCY_SEARCH_TIMEOUT)
-    except Exception:
+    except Exception as err:
+        # 부가 기능이라 사용자에게는 이 섹션만 조용히 빠지지만("지적할 내용 없음"과
+        # 구분이 안 되는 문제가 있었음), 원인 파악은 서버 로그로 남긴다(CLAUDE.md 규칙 10).
+        logger.warning("강의자료 평가 - 웹검색 AI 추가 의견 생성 실패(무시하고 계속 진행): %r", err)
         return None
     finally:
         # wait=False: 응답이 이미 왔거나 타임아웃으로 포기한 뒤에는 스레드가
