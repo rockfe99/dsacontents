@@ -16,9 +16,18 @@
 4) currency_review - 웹검색 기반 "AI 추가 의견"(최신 기술/버전 검토). 부가
    기능이라 최종 실패해도(레이트리밋·타임아웃·미지원 모델 등) 조용히
    None으로 두고 나머지 리포트는 정상 반환한다(CLAUDE.md 규칙 10과 동일
-   원칙). 핵심 평가 호출 직후 같은 슬라이드 전체 텍스트를 또 보내면서
-   조직 분당 토큰 한도(TPM)에 걸리는 순간적인 429가 실기기에서 관측돼,
-   짧게 대기 후 1회 재시도하는 로직이 들어있다.
+   원칙). 검색+요약을 한 호출에 다 맡기면(실기기에서 반복 확인) 언어·톤·
+   마크다운 금지 같은 스타일 지시가 잘 안 지켜져서(영어로 답하거나 목록
+   형태 원문을 그대로 인용) 두 단계로 나눴다:
+   a) _run_web_search() - 웹검색 도구로 원시 조사 결과만 받는다(언어·형식
+      신경 안 씀). 슬라이드 전체 텍스트 대신 이미 만들어진
+      structure_review(짧은 요약)를 검색 맥락으로 쓴다 - 토큰을 아낄 수
+      있고(핵심 평가 직후 슬라이드 전체를 또 보내다 분당 토큰 한도(TPM)에
+      걸리는 429가 실기기에서 관측됐음), 검색 도구 입장에서도 핵심만
+      간결하게 받는 게 낫다.
+   b) _rewrite_currency_review() - 검색 도구 없는 일반 호출로 그 원시
+      결과를 한국어 요약 의견으로 다시 쓴다. 도구 없는 순수 지시 따르기
+      호출이라 언어·톤·마크다운 금지 지시가 훨씬 안정적으로 지켜진다.
 """
 
 import logging
@@ -40,9 +49,9 @@ logger = logging.getLogger(__name__)
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 _CURRENCY_SEARCH_TIMEOUT = 25
+_CURRENCY_REWRITE_TIMEOUT = 15
 _CURRENCY_MAX_ATTEMPTS = 2
-# 핵심 평가 호출이 슬라이드 전체 텍스트로 이미 토큰을 쓴 직후라, 웹검색 호출이
-# 같은 텍스트를 또 보내면서 조직 분당 토큰 한도(TPM)에 걸려 429가 나는 경우가
+# 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려 429가 나는 경우가
 # 실제로 관측됨 - OpenAI가 에러에 함께 알려주는 재시도 대기 시간(보통 1~2초)보다
 # 넉넉하게 잡아 한 번만 재시도한다.
 _CURRENCY_RETRY_DELAY = 3
@@ -85,32 +94,43 @@ _CORE_PROMPT_TEMPLATE = """당신은 강의 교안을 검토하는 교육 전문
 - 한국어로 작성하세요.
 """
 
-_CURRENCY_PROMPT_TEMPLATE = """다음은 어떤 강의 슬라이드의 내용입니다.
+_SEARCH_PROMPT_TEMPLATE = """다음은 어떤 강의 내용의 핵심 요약입니다.
 
-[슬라이드 내용]
-{slide_text}
+[강의 내용 요약]
+{topic_summary}
 
 [요청]
-당신의 웹 검색 능력을 활용해, 이 강의 내용 중 현재 시점 기준으로 오래되었거나
-최신 기술·버전과 맞지 않는 부분이 있는지 확인하세요.
+당신의 웹 검색 능력을 활용해, 이 강의에서 다루는 기술/개념 중 현재 시점
+기준으로 오래되었거나 최신 버전·방식과 달라진 부분이 있는지 조사하세요.
+확실한 근거가 있을 때만 조사 결과를 알려주고, 딱히 다룰 만한 내용이 없으면
+다른 말 없이 정확히 "NONE"이라고만 답하세요(있지도 않은 문제를 억지로
+찾지 마세요). 언어나 문장 형식은 신경 쓰지 말고 찾은 내용을 있는 그대로
+알려주면 됩니다 - 이 결과는 다음 단계에서 다시 정리됩니다.
+"""
 
-- **이 강의 슬라이드에 실제로 나온 내용과 연결지어서만** 언급하세요. 검색으로
-  찾은 사실을 그 자체로 나열하지 말고, "슬라이드에서 다루는 X 관련해서
-  현재는 이렇게 바뀌었다/이 점을 참고하면 좋겠다"처럼 이 강의와의 관련성이
-  드러나게 쓰세요.
-- 확실한 근거가 있을 때만 언급하고, 특별히 지적할 내용이 없으면 다른 말 없이
-  정확히 "NONE"이라고만 답하세요(있지도 않은 문제를 억지로 만들지 마세요).
-- 검색 결과가 영어 등 다른 언어여도 **반드시 한국어로 번역해서** 작성하세요.
-  검색 결과 원문을 그대로 인용하지 마세요.
-- 마크다운 링크·각주·출처 URL을 절대 쓰지 마세요(예: `[사이트](주소)`,
-  `(출처: ...)` 형식 전부 금지) - 이 결과는 마크다운을 지원하지 않는 화면에
-  그대로 표시되므로, 링크 문법이 그대로 깨진 글자로 노출됩니다. 순수한
-  문장으로만, 필요하면 사이트/제품 이름 정도만 텍스트로 언급하세요.
-- 언급할 내용이 있다면 한국어로 짧게 요약된 의견 2~4문장 정도, 강사가
-  참고할 수 있는 자연스러운 톤으로 작성하세요(사실을 나열하는 보고서 톤이
-  아니라, 동료가 조언해주는 듯한 요약 의견 톤).
-- 이 의견은 당신의 지식과 검색 결과에 기반한 참고 의견이며 이 강의의 실제
-  학생 데이터와는 무관하다는 점을 첫 문장에 명시하세요.
+_REWRITE_PROMPT_TEMPLATE = """아래는 어떤 강의 내용의 핵심 요약과, 그 내용에 대해 웹 검색으로 조사한
+원시 결과입니다.
+
+[강의 내용 요약]
+{topic_summary}
+
+[웹 검색 조사 결과 - 원문(다른 언어이거나 목록 형태일 수 있음)]
+{raw_findings}
+
+[요청]
+위 조사 결과를 바탕으로, 이 강의에 참고가 될 만한 "최신 기술/버전 관련
+참고 의견"을 새로 작성하세요.
+- 조사 결과 원문을 번역·인용하지 말고, 이 강의와 실질적으로 관련된 부분만
+  골라 강사에게 조언하듯 자연스러운 한국어 문장으로 새로 쓰세요.
+- 목록이나 항목 나열이 아니라, 2~4문장 정도의 짧은 요약 의견으로 쓰세요.
+- 반드시 한국어로만 작성하세요. 영어 단어는 고유명사(제품명·버전명 등)만
+  허용됩니다.
+- 마크다운 링크·글머리 기호(-, *)·출처 표기를 절대 쓰지 마세요. 순수한
+  문장으로만 쓰세요.
+- 첫 문장에서 이 의견이 AI의 검색 기반 참고 의견이며 이 강의의 실제 학생
+  데이터와는 무관하다는 점을 밝히세요.
+- 조사 결과에 이 강의와 실질적으로 관련된 내용이 없다면, 억지로 만들지
+  말고 정확히 "NONE"이라고만 답하세요.
 """
 
 
@@ -204,7 +224,7 @@ def _strip_markdown_links(text: str) -> str:
     return _MARKDOWN_LINK_RE.sub(r"\1", text)
 
 
-def _generate_currency_review(slide_text: str) -> Optional[str]:
+def _generate_currency_review(topic_summary: str) -> Optional[str]:
     """웹검색 기반 "AI 추가 의견". 이 함수는 절대 예외를 던지지 않는다 - 안쪽
     로직이 어디서 어떤 이유로 실패하든(레이트리밋·타임아웃·미지원 모델·응답
     형태 변경 등, 심지어 아직 겪어보지 못한 새로운 오류라도) 이 함수 바깥의
@@ -214,21 +234,26 @@ def _generate_currency_review(slide_text: str) -> Optional[str]:
     예외가 안 잡혀서 전체 요청이 500으로 죽고, 화면에는 원인과 무관하게
     "AI 크레딧 필요" 안내만 뜨며 이미 만들어진 핵심 평가까지 통째로 날아간
     적이 있었음 - 그래서 아래 로직 전체를 최상위 try/except로 한 번 더
-    감싼다). 개별 단계(호출 자체, 응답 파싱)에서도 각각 방어하지만, 그건
-    로그를 더 구체적으로 남기기 위함이고 최종 안전망은 이 바깥쪽 try다."""
+    감싼다). 개별 단계(검색, 재작성)에서도 각각 방어하지만, 그건 로그를 더
+    구체적으로 남기기 위함이고 최종 안전망은 이 바깥쪽 try다."""
     try:
-        return _try_generate_currency_review(slide_text)
+        raw = _run_web_search(topic_summary)
+        if not raw:
+            return None
+        return _rewrite_currency_review(topic_summary, raw)
     except Exception as err:
         logger.warning("강의자료 평가 - 웹검색 AI 추가 의견 처리 중 예상치 못한 오류(무시하고 계속 진행): %r", err)
         return None
 
 
-def _try_generate_currency_review(slide_text: str) -> Optional[str]:
-    """실기기 테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에
-    걸려 RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통
-    1~2초 후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회
-    까지 짧게 대기 후 재시도한다."""
-    prompt = _CURRENCY_PROMPT_TEMPLATE.format(slide_text=slide_text)
+def _run_web_search(topic_summary: str) -> Optional[str]:
+    """1단계: 웹검색 도구로 원시 조사 결과를 가져온다(언어·형식 다듬기는
+    이 단계의 책임이 아니다 - _rewrite_currency_review()가 처리). 실기기
+    테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려
+    RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통 1~2초
+    후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회까지
+    짧게 대기 후 재시도한다."""
+    prompt = _SEARCH_PROMPT_TEMPLATE.format(topic_summary=topic_summary)
     result = None
 
     for attempt in range(1, _CURRENCY_MAX_ATTEMPTS + 1):
@@ -241,7 +266,7 @@ def _try_generate_currency_review(slide_text: str) -> Optional[str]:
         except Exception as err:
             is_last_attempt = attempt == _CURRENCY_MAX_ATTEMPTS
             logger.warning(
-                "강의자료 평가 - 웹검색 AI 추가 의견 생성 실패(%d/%d회차)%s: %r",
+                "강의자료 평가 - 웹검색 조사 실패(%d/%d회차)%s: %r",
                 attempt, _CURRENCY_MAX_ATTEMPTS,
                 "" if is_last_attempt else (" - %d초 후 재시도" % _CURRENCY_RETRY_DELAY),
                 err,
@@ -258,6 +283,22 @@ def _try_generate_currency_review(slide_text: str) -> Optional[str]:
             executor.shutdown(wait=False)
 
     text = _extract_text_content(result.content).strip() if result is not None else ""
+    if not text or text.upper() == "NONE":
+        return None
+    return text
+
+
+def _rewrite_currency_review(topic_summary: str, raw_findings: str) -> Optional[str]:
+    """2단계: 검색 원문(영어·목록형일 수 있음)을 한국어 요약 의견으로 다시
+    쓴다. 검색 도구 없는 일반 호출이라 언어·톤·마크다운 금지 같은 스타일
+    지시를 훨씬 안정적으로 따른다(검색 도구를 같이 쓰는 호출에서는 이런
+    스타일 지시가 잘 안 지켜지는 것을 실기기에서 반복 확인했다 - 영어로
+    답하거나 원문을 그대로 목록으로 인용하는 문제가 있었음)."""
+    llm = get_openai_llm(timeout=_CURRENCY_REWRITE_TIMEOUT)
+    prompt = _REWRITE_PROMPT_TEMPLATE.format(topic_summary=topic_summary, raw_findings=raw_findings)
+    result = llm.invoke(prompt)
+
+    text = _extract_text_content(result.content).strip()
     text = _strip_markdown_links(text).strip()
     if not text or text.upper() == "NONE":
         return None
@@ -266,11 +307,15 @@ def _try_generate_currency_review(slide_text: str) -> Optional[str]:
 
 def generate(slide_count: int, slide_text: str, survey_rows: list[dict], persona_groups: list[dict]) -> dict:
     """강의자료 평가 리포트를 생성한다. 근거 명시는 코드가 조립하고, 본문 평가는
-    구조화 출력 1회, AI 추가 의견은 웹검색 호출 1회(best-effort)로 만든다.
+    구조화 출력 1회, AI 추가 의견은 웹검색+재작성 호출 2회(best-effort)로 만든다.
     반환 형태는 lecture_evaluations 테이블 컬럼과 그대로 대응한다."""
     evidence_basis = build_evidence_basis(slide_count, survey_rows, persona_groups)
     core = _generate_core(slide_text, survey_rows, persona_groups)
-    currency_review = _generate_currency_review(slide_text)
+    # 웹검색 단계는 슬라이드 전체 텍스트가 아니라 core.structure_review(짧은
+    # 요약)를 맥락으로 쓴다 - 토큰을 아끼고(핵심 평가 직후 전체 텍스트를 또
+    # 보내다 TPM 한도에 걸리는 문제가 실기기에서 있었음) 검색 도구 입장에서도
+    # 핵심만 간결하게 받는 게 낫다.
+    currency_review = _generate_currency_review(core.structure_review)
 
     return {
         "evidence_basis": evidence_basis,
