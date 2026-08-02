@@ -4,8 +4,9 @@ system-b-dashboard(GAS)가 UrlFetchApp으로 이 서버를 호출한다.
 
 엔드포인트: 시험문제 자동생성(POST /exam-questions),
            실시간 설문 의견형 결과 요약(POST /opinion-summary),
-           가상질문 생성(POST /virtual-questions)
-모두 llm_provider.get_openai_llm()으로 OpenAI 인스턴스를 공유해서 쓴다. 
+           가상질문 생성(POST /virtual-questions),
+           강의자료 평가(POST /lecture-evaluation)
+모두 llm_provider.get_openai_llm()으로 OpenAI 인스턴스를 공유해서 쓴다.
 """
 
 from typing import Literal
@@ -15,13 +16,16 @@ from pydantic import BaseModel
 
 from auth import verify_api_key
 from chains.exam_generator import generate as generate_exam_questions
+from chains.lecture_evaluator import generate as generate_lecture_evaluation
 from chains.opinion_summarizer import summarize as summarize_opinions
 from chains.virtual_question_agent import generate as generate_virtual_questions
 from supabase_client import (
     get_persona,
     get_slide_segments,
-    get_slide_text,
+    get_survey_results,
     get_virtual_questions,
+    get_virtual_questions_by_persona,
+    join_slide_text,
 )
 
 app = FastAPI(title="dsacontents ai-server")
@@ -51,13 +55,18 @@ class VirtualQuestionRequest(BaseModel):
     persona_id: str
 
 
+class LectureEvaluationRequest(BaseModel):
+    keyword: str
+
+
 @app.post("/exam-questions")
 def exam_questions(req: ExamRequest, x_api_key: str = Header(default="")):
     verify_api_key(x_api_key)
 
-    slide_text = get_slide_text(req.keyword)
-    if not slide_text:
+    segments = get_slide_segments(req.keyword)
+    if not segments:
         raise HTTPException(status_code=404, detail="슬라이드 내용을 찾을 수 없습니다.")
+    slide_text = join_slide_text(segments)
 
     # 요청한 시험 난이도와 매칭되는 페르소나의 가상질문만 참고자료로 전달한다
     # (없으면 빈 리스트 - exam_generator가 그 경우 참고자료 섹션 자체를 프롬프트에서 뺀다).
@@ -102,3 +111,22 @@ def virtual_questions(req: VirtualQuestionRequest, x_api_key: str = Header(defau
 
     questions = generate_virtual_questions(persona["prompt"], segments)
     return {"questions": questions}
+
+
+@app.post("/lecture-evaluation")
+def lecture_evaluation(req: LectureEvaluationRequest, x_api_key: str = Header(default="")):
+    verify_api_key(x_api_key)
+
+    try:
+        segments = get_slide_segments(req.keyword)
+        survey_rows = get_survey_results(req.keyword)
+        persona_groups = get_virtual_questions_by_persona(req.keyword)
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    if not segments:
+        raise HTTPException(status_code=404, detail="슬라이드 내용을 찾을 수 없습니다.")
+
+    slide_text = join_slide_text(segments)
+    result = generate_lecture_evaluation(len(segments), slide_text, survey_rows, persona_groups)
+    return result

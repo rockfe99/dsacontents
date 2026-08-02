@@ -22,13 +22,19 @@ def _headers() -> dict:
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 
+def join_slide_text(segments: list[dict]) -> str:
+    """get_slide_segments()가 반환한 리스트를 [슬라이드 N] 텍스트로 이어붙인다.
+    슬라이드 개수(len(segments))가 따로 필요한 호출부(강의자료 평가)는
+    get_slide_segments()를 먼저 부르고 이 함수로 텍스트만 따로 만든다."""
+    return "\n\n".join(
+        f"[슬라이드 {row['slide_index']}]\n{row['slide_text']}" for row in segments
+    )
+
+
 def get_slide_text(keyword: str) -> str:
     """키워드로 slide_contents를 슬라이드 순서대로 조회해 하나의 텍스트로 이어붙인다.
     시험문제 생성(/exam-questions)이 쓴다."""
-    rows = get_slide_segments(keyword)
-    return "\n\n".join(
-        f"[슬라이드 {row['slide_index']}]\n{row['slide_text']}" for row in rows
-    )
+    return join_slide_text(get_slide_segments(keyword))
 
 
 def get_slide_segments(keyword: str) -> list[dict]:
@@ -100,3 +106,54 @@ def get_virtual_questions(keyword: str, exam_level: str) -> list[dict]:
     for row in rows:
         flattened.extend(row.get("questions") or [])
     return flattened
+
+
+def get_survey_results(keyword: str) -> list[dict]:
+    """그 키워드로 누적된 모든 실시간 설문 결과(finalize_survey()로 저장된 것만 -
+    저장 안 하고 종료한 설문은 여기 없음)를 오래된 순으로 반환한다.
+    강의자료 평가(/lecture-evaluation)가 "실제 학생 응답" 근거로 쓴다."""
+    _require_config()
+
+    url = f"{SUPABASE_URL}/rest/v1/survey_results"
+    params = {
+        "lecture_keyword": f"eq.{keyword}",
+        "select": "question_text,question_type,total_responses,correct_count,accuracy_rate,opinion_summary",
+        "order": "saved_at",
+    }
+
+    res = requests.get(url, params=params, headers=_headers(), timeout=15)
+    res.raise_for_status()
+    return res.json()
+
+
+def get_virtual_questions_by_persona(keyword: str) -> list[dict]:
+    """활성 페르소나 전원을 display_order 순으로 반환하되, 그 키워드로 실제
+    생성된 가상질문이 있으면 questions를 채우고 없으면 빈 리스트로 둔다.
+    label은 CLAUDE.md 표시 규칙("학생N(이름)", N은 활성 페르소나 중 순서)을
+    그대로 계산해서 넣어준다 - 강의자료 평가의 근거 표시·반응 검토가 이
+    label을 그대로 쓴다(exam_level 필터링 없이 전체 참고 - 자료 평가는
+    시험 난이도 개념이 없어서 특정 수준으로 좁힐 이유가 없다).
+    반환: [{persona_id, label, questions}, ...]"""
+    _require_config()
+    headers = _headers()
+
+    persona_url = f"{SUPABASE_URL}/rest/v1/virtual_question_personas"
+    persona_params = {"active": "eq.true", "select": "persona_id,name", "order": "display_order"}
+    persona_res = requests.get(persona_url, params=persona_params, headers=headers, timeout=15)
+    persona_res.raise_for_status()
+    personas = persona_res.json()
+
+    vq_url = f"{SUPABASE_URL}/rest/v1/virtual_questions"
+    vq_params = {"lecture_keyword": f"eq.{keyword}", "select": "persona_id,questions"}
+    vq_res = requests.get(vq_url, params=vq_params, headers=headers, timeout=15)
+    vq_res.raise_for_status()
+    questions_by_persona = {row["persona_id"]: (row.get("questions") or []) for row in vq_res.json()}
+
+    return [
+        {
+            "persona_id": p["persona_id"],
+            "label": f"학생{i + 1}({p['name']})",
+            "questions": questions_by_persona.get(p["persona_id"], []),
+        }
+        for i, p in enumerate(personas)
+    ]

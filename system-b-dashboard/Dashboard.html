@@ -114,6 +114,25 @@
   .ai-mode-badge.on { background: var(--blue-050); color: var(--blue-700); }
   .ai-mode-badge.off { background: #fdecea; color: #c0392b; }
 
+  .eval-badge {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .eval-badge.full { background: var(--blue-050); color: var(--blue-700); }
+  .eval-badge.slide-only { background: #f1f2f4; color: #5a6675; }
+  .eval-evidence {
+    background: #f6f7f9; border-radius: 6px; padding: 10px 12px; margin: 10px 0;
+    font-size: 12.5px; color: #445; white-space: pre-line; line-height: 1.6;
+  }
+  .eval-section { margin-top: 16px; }
+  .eval-section h4 { font-size: 13px; color: var(--blue-900); margin: 0 0 6px 0; }
+  .eval-section p { margin: 0; font-size: 13px; line-height: 1.6; white-space: pre-line; }
+  .eval-section ul { margin: 0; padding-left: 20px; font-size: 13px; line-height: 1.7; }
+  .eval-currency {
+    background: rgba(220, 53, 69, 0.1); color: #7a2530; border-radius: 6px;
+    padding: 10px 12px; font-size: 12.5px; line-height: 1.6; white-space: pre-line;
+  }
+
   .btn-icon {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; flex: none;
@@ -483,6 +502,20 @@
     </div>
   </div>
 
+  <!-- 시험문제 생성 - 결과 모달(가상질문 생성과 같은 패턴: 자동으로 새 탭을 열되,
+       팝업 차단 등으로 새 탭이 안 열려도 이 모달의 [새 탭에서 보기] 버튼으로
+       다시 열 수 있게 한다 - 버튼 클릭은 사용자 제스처라 팝업이 차단되지 않음). -->
+  <div class="modal-overlay" id="examResultOverlay">
+    <div class="modal" style="width:380px;">
+      <div class="modal-header">
+        <h3>시험문제 생성</h3>
+        <button class="modal-close" onclick="closeExamResult()">&times;</button>
+      </div>
+      <div class="modal-body" id="examResultBody"></div>
+      <div class="modal-footer" id="examResultFooter" style="justify-content:flex-end;"></div>
+    </div>
+  </div>
+
   <!-- 가상질문 생성 - 학생 페르소나 선택 모달 -->
   <div class="modal-overlay" id="vqPersonaOverlay">
     <div class="modal" style="width:440px;">
@@ -509,6 +542,19 @@
       </div>
       <div class="modal-body" id="vqResultBody"></div>
       <div class="modal-footer" id="vqResultFooter" style="justify-content:flex-end;"></div>
+    </div>
+  </div>
+
+  <!-- 강의자료 평가 - 결과 모달. 문제/질문 목록과 달리 산문 형태 리포트라
+       새 탭 없이 이 모달 안에 그대로 표시한다(스크롤 가능). -->
+  <div class="modal-overlay" id="evalResultOverlay">
+    <div class="modal" style="width:560px; max-height:80vh; display:flex; flex-direction:column;">
+      <div class="modal-header">
+        <h3>강의자료 평가</h3>
+        <button class="modal-close" onclick="closeEvalResult()">&times;</button>
+      </div>
+      <div class="modal-body" id="evalResultBody" style="overflow-y:auto;"></div>
+      <div class="modal-footer" id="evalResultFooter" style="justify-content:flex-end;"></div>
     </div>
   </div>
 
@@ -654,13 +700,109 @@
       .isAiEnabled();
   }
 
-  /** 아직 개발이 완료되지 않은 AI 기능 버튼(가상질문 생성·강의자료 평가) 공용 처리. */
-  function showAiFeatureNotReady_() {
-    showAiCreditModal();
-  }
+  // ===== 강의자료 평가 =====
+  var currentEvalKeyword = null;
+  var currentEvalResult = null;  // "다시 평가" 없이 재확인할 때 재사용
+  var evalElapsedTimer = null;
+  var evalStartedAt = null;
 
   function evaluateMaterial(key) {
-    showAiFeatureNotReady_();
+    checkAiEnabled_(function (enabled) {
+      if (!enabled) { showAiCreditModal(); return; }
+      currentEvalKeyword = key;
+
+      document.getElementById('evalResultBody').innerHTML = '<div class="loading">기존 평가 결과를 확인하는 중…</div>';
+      document.getElementById('evalResultFooter').innerHTML = '';
+      document.getElementById('evalResultOverlay').classList.add('show');
+
+      google.script.run
+        .withSuccessHandler(function (cached) {
+          if (cached && cached.structure_review) {
+            showEvalResultReady(cached);
+          } else {
+            startEvalGenerate();
+          }
+        })
+        .withFailureHandler(function () { startEvalGenerate(); })
+        .getLectureEvaluationCache(currentEvalKeyword);
+    });
+  }
+
+  /** 결과 모달을 연 채로 평가를 (재)시작한다 - [다시 평가] 버튼도 이 함수를 그대로 호출한다. */
+  function startEvalGenerate() {
+    evalStartedAt = Date.now();
+    document.getElementById('evalResultFooter').innerHTML = '';
+    updateEvalElapsed();
+    clearInterval(evalElapsedTimer);
+    evalElapsedTimer = setInterval(updateEvalElapsed, 1000);
+
+    google.script.run
+      .withSuccessHandler(function (result) {
+        clearInterval(evalElapsedTimer);
+        if (result && result.error) {
+          document.getElementById('evalResultOverlay').classList.remove('show');
+          showAiCreditModal();
+          return;
+        }
+        showEvalResultReady(result);
+      })
+      .withFailureHandler(function () {
+        clearInterval(evalElapsedTimer);
+        document.getElementById('evalResultOverlay').classList.remove('show');
+        showAiCreditModal();
+      })
+      .generateLectureEvaluation(currentEvalKeyword);
+  }
+
+  function updateEvalElapsed() {
+    var sec = Math.max(0, Math.floor((Date.now() - evalStartedAt) / 1000));
+    var mm = ('0' + Math.floor(sec / 60)).slice(-2);
+    var ss = ('0' + (sec % 60)).slice(-2);
+    document.getElementById('evalResultBody').innerHTML =
+      '<div class="loading"><strong>강의자료 평가 중…</strong> 경과 ' + mm + ':' + ss + '</div>';
+  }
+
+  function showEvalResultReady(result) {
+    currentEvalResult = result;
+
+    var isFull = result.data_coverage === 'slide_and_signals';
+    var badge = isFull
+      ? '<span class="eval-badge full">슬라이드 + 실제/가상 반응 기반</span>'
+      : '<span class="eval-badge slide-only">슬라이드 구성만 기반(반응 데이터 없음)</span>';
+
+    var html = badge;
+    html += '<div class="eval-evidence">' + esc(result.evidence_basis || '') + '</div>';
+
+    html += '<div class="eval-section"><h4>구조 검토</h4><p>' + esc(result.structure_review || '') + '</p></div>';
+
+    if (result.learner_signal_review) {
+      html += '<div class="eval-section"><h4>실제/가상 반응 기반 검토</h4><p>' + esc(result.learner_signal_review) + '</p></div>';
+    }
+
+    if (result.currency_review) {
+      html += '<div class="eval-section"><h4>AI 추가 의견(웹검색 기반)</h4>' +
+        '<div class="eval-currency">' + esc(result.currency_review) + '</div></div>';
+    }
+
+    if (result.suggestions && result.suggestions.length) {
+      html += '<div class="eval-section"><h4>개선 제안</h4><ul>' +
+        result.suggestions.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') +
+        '</ul></div>';
+    }
+
+    if (result.generated_at) {
+      html += '<div class="hint" style="margin-top:14px;">생성 시각: ' + esc(formatVqDate_(result.generated_at)) + '</div>';
+    }
+
+    document.getElementById('evalResultBody').innerHTML = html;
+    document.getElementById('evalResultFooter').innerHTML =
+      '<button class="btn-ghost" onclick="closeEvalResult()">닫기</button>' +
+      '<button class="btn-primary" onclick="startEvalGenerate()">다시 평가</button>';
+  }
+
+  function closeEvalResult() {
+    clearInterval(evalElapsedTimer);
+    document.getElementById('evalResultOverlay').classList.remove('show');
   }
 
   // ===== 가상질문 생성 =====
@@ -871,6 +1013,11 @@
   }
 
   // ===== 시험문제 생성 =====
+  var currentExamParams = null;    // { type, level, count } - "다시 생성"용 보관
+  var currentExamResult = null;    // { questions } - "새 탭에서 다시 보기"용 보관
+  var examElapsedTimer = null;
+  var examStartedAt = null;
+
   function makeQuiz(key) {
     checkAiEnabled_(function (enabled) {
       if (!enabled) { showAiCreditModal(); return; }
@@ -895,25 +1042,78 @@
     var count = parseInt(document.getElementById('examCount').value, 10);
     if (!count || count < 1) { showToast('개수를 올바르게 입력하세요'); return; }
 
-    var btn = document.getElementById('examGenerateBtn');
-    btn.disabled = true;
-    btn.textContent = '생성 중…';
+    currentExamParams = { type: type, level: level, count: count };
+    closeExamCreate();
 
+    document.getElementById('examResultBody').innerHTML = '';
+    document.getElementById('examResultFooter').innerHTML = '';
+    document.getElementById('examResultOverlay').classList.add('show');
+    startExamGenerate();
+  }
+
+  /** 결과 모달을 연 채로 생성을 (재)시작한다 - [다시 생성] 버튼도 이 함수를 그대로 호출한다. */
+  function startExamGenerate() {
+    examStartedAt = Date.now();
+    document.getElementById('examResultFooter').innerHTML = '';
+    updateExamElapsed();
+    clearInterval(examElapsedTimer);
+    examElapsedTimer = setInterval(updateExamElapsed, 1000);
+
+    var p = currentExamParams;
     google.script.run
       .withSuccessHandler(function (result) {
-        btn.disabled = false;
-        btn.textContent = '생성';
-        if (result && result.error) { closeExamCreate(); showAiCreditModal(); return; }
-        closeExamCreate();
-        openExamResultWindow(result);
+        clearInterval(examElapsedTimer);
+        if (result && result.error) {
+          document.getElementById('examResultOverlay').classList.remove('show');
+          showAiCreditModal();
+          return;
+        }
+        showExamResultReady(result);
       })
       .withFailureHandler(function (err) {
-        btn.disabled = false;
-        btn.textContent = '생성';
-        closeExamCreate();
+        clearInterval(examElapsedTimer);
+        document.getElementById('examResultOverlay').classList.remove('show');
         showAiCreditModal();
       })
-      .generateExamQuestions(currentExamKeyword, type, level, count);
+      .generateExamQuestions(currentExamKeyword, p.type, p.level, p.count);
+  }
+
+  function updateExamElapsed() {
+    var sec = Math.max(0, Math.floor((Date.now() - examStartedAt) / 1000));
+    var mm = ('0' + Math.floor(sec / 60)).slice(-2);
+    var ss = ('0' + (sec % 60)).slice(-2);
+    document.getElementById('examResultBody').innerHTML =
+      '<div class="loading"><strong>시험문제 생성 중…</strong> 경과 ' + mm + ':' + ss + '</div>';
+  }
+
+  /** 생성이 끝나면 모달에는 짧은 요약만 두고, 문제 전체는 새 탭에 자동으로 연다
+   *  (가상질문 생성의 showVqResultReady()와 같은 패턴). 자동으로 안 열려도(팝업
+   *  차단) 모달의 [새 탭에서 보기] 버튼은 클릭이라는 사용자 제스처라 차단되지 않는다. */
+  function showExamResultReady(result) {
+    currentExamResult = result;
+    var count = ((result && result.questions) || []).length;
+
+    document.getElementById('examResultBody').innerHTML =
+      '<div class="hint">문제 ' + count + '개가 생성됐습니다.</div>' +
+      '<div class="hint" style="margin-top:6px;">결과를 새 탭에 열었습니다. 안 열렸다면 아래 [새 탭에서 보기]를 눌러주세요.</div>';
+    document.getElementById('examResultFooter').innerHTML =
+      '<button class="btn-ghost" onclick="closeExamResult()">닫기</button>' +
+      '<button class="btn" onclick="startExamGenerate()">다시 생성</button>' +
+      '<button class="btn-primary" onclick="reopenExamResultWindow()">새 탭에서 보기</button>';
+
+    openExamResultWindow(result);
+  }
+
+  function reopenExamResultWindow() {
+    if (!currentExamResult) return;
+    if (!openExamResultWindow(currentExamResult)) {
+      showConfirmModal('새 창이 차단되었습니다. 브라우저의 팝업 차단을 해제해 주세요.', { alertOnly: true });
+    }
+  }
+
+  function closeExamResult() {
+    clearInterval(examElapsedTimer);
+    document.getElementById('examResultOverlay').classList.remove('show');
   }
 
   /** 생성된 시험문제를 복사해서 쓰기 좋은 형태로 새 창에 출력한다(보관은 안 함, 일회성). */
@@ -921,8 +1121,7 @@
     var questions = (result && result.questions) || [];
     var win = window.open('', '_blank');
     if (!win) {
-      showConfirmModal('새 창이 차단되었습니다. 브라우저의 팝업 차단을 해제해 주세요.', { alertOnly: true });
-      return;
+      return false;
     }
 
     var body;
@@ -959,12 +1158,13 @@
       'h2{font-size:16px;border-bottom:2px solid #2563a8;padding-bottom:6px;margin-top:32px;}' +
       '.q{margin-bottom:16px;}' +
       'ol{margin:4px 0 0 0;padding-left:24px;}' +
-      '.notice{background:#fff3cd;color:#7a5c00;padding:10px 14px;border-radius:6px;font-size:13px;}' +
+      '.notice{background:rgba(220,53,69,0.15);color:#a5202f;padding:10px 14px;border-radius:6px;font-size:13px;font-weight:700;}' +
       '</style></head><body>' +
       body +
       '</body></html>'
     );
     win.document.close();
+    return true;
   }
 
   // ===== 실시간 설문 =====

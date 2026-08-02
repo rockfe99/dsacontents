@@ -480,3 +480,61 @@ function generateExamQuestions(keyword, questionType, level, count) {
     return { error: true };
   }
 }
+
+/**
+ * 강의자료 평가 - 버튼 클릭 직후, 이미 생성된 결과가 있는지 확인(캐시).
+ * 있으면 재생성 없이 그대로 보여주고, 강사가 원할 때만 "다시 평가"한다.
+ * @param {string} keyword
+ * @return {Object|null} { evidence_basis, structure_review, learner_signal_review,
+ *   currency_review, suggestions, data_coverage, generated_at } 또는 없으면 null
+ */
+function getLectureEvaluationCache(keyword) {
+  return PublishEngine.getLectureEvaluation(keyword);
+}
+
+/**
+ * 강의자료 평가 - ai-server(Cloud Run, Python+LangChain)의
+ * POST /lecture-evaluation을 호출해 슬라이드 본문·실시간 설문 결과·가상질문을
+ * 근거로 교안 평가 리포트를 새로 생성하고, 성공하면 캐시(Supabase
+ * lecture_evaluations)에 저장한다. "다시 평가"도 이 함수를 그대로 호출한다 -
+ * 기존 캐시를 덮어쓴다.
+ * CLAUDE.md 규칙 10: 실패(오류·타임아웃·할당량 등)는 원인 불문하고 고정
+ * 안내 문구로 흡수한다 - 여기서는 성공/실패만 전달하고, 문구는 대시보드가
+ * 통일해서 띄운다(showAiCreditModal 재사용).
+ * @param {string} keyword
+ * @return {Object} { evidence_basis, structure_review, learner_signal_review,
+ *   currency_review, suggestions, data_coverage } 또는 실패 시 { error: true }
+ */
+function generateLectureEvaluation(keyword) {
+  try {
+    if (!isAiEnabled()) {
+      return { error: true };
+    }
+
+    var serverUrl = PublishEngine.getSetting('AI_SERVER_URL');
+    var apiKey = PublishEngine.getSecret('AI_SERVER_KEY');
+    if (!serverUrl || !apiKey) {
+      throw new Error('AI_SERVER_URL/AI_SERVER_KEY가 설정되어 있지 않습니다.');
+    }
+
+    var res = UrlFetchApp.fetch(serverUrl + '/lecture-evaluation', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'X-API-Key': apiKey },
+      payload: JSON.stringify({ keyword: keyword }),
+      muteHttpExceptions: true
+    });
+
+    if (res.getResponseCode() !== 200) {
+      Logger.log('강의자료 평가 서버 오류: %s %s', res.getResponseCode(), res.getContentText());
+      return { error: true };
+    }
+
+    var result = JSON.parse(res.getContentText());
+    PublishEngine.saveLectureEvaluation(keyword, result);
+    return result;
+  } catch (err) {
+    Logger.log('강의자료 평가 오류: %s', err);
+    return { error: true };
+  }
+}

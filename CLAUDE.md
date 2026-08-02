@@ -255,7 +255,7 @@ DB_SHEET_ID      = 1eSXtQL5dVi2BFymrUMI0NabuSb600mehKUDMRJBga5o   (DB 스프레�
 | 가상질문 생성 | 구현됨 | `POST /virtual-questions` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain+LangGraph) |
 | 강의자료 요약(1페이지, 배포 시 생성) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
 | 이해도 보고서(설문 답변 + 슬라이드 내용 분석) | 미구현(계획) | 신규 엔드포인트 필요 | OpenAI 예정 |
-| 강의자료 평가 | 미구현(스텁) | 신규 엔드포인트 필요, 현재는 버튼 클릭 시 "AI 크레딧 필요" 안내만 표시 | OpenAI 예정 |
+| 강의자료 평가 | 구현됨 | `POST /lecture-evaluation` (`ai-server/main.py`) | OpenAI(`gpt-4o`, LangChain) + OpenAI 내장 웹검색(Responses API, 부가 기능) |
 
 ### 기능
 - **강의자료 요약** (1페이지, 배포 시 생성해 JSON에 저장 → 뷰어 즉시 열람)
@@ -573,10 +573,19 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   없이 슬라이드 내용만으로 진행). 문제 자체의 난이도는 참고자료 유무와
   무관하게 `exam_generator.py`의 `_LEVEL_INSTRUCTIONS`가 슬라이드 내용을
   근거로 항상 적용한다.
-- 이 세션에서 함께 고친 기존 버그 2건: (1) `Dashboard.html`의
+- 이 세션에서 함께 고친 기존 버그 3건: (1) `Dashboard.html`의
   `generateExam()`이 `examLevel` 라디오값을 안 읽고 서버 호출에 안 넘기던
   문제, (2) 새 탭 결과 화면(`openExamResultWindow`)에 "저장되지 않으니
-  복사해서 사용하라"는 안내문이 없던 문제.
+  복사해서 사용하라"는 안내문이 없던 문제, (3) **결과가 새 탭 팝업 차단으로
+  안 뜨는 문제** - 원래는 옵션 입력 모달을 닫고 `google.script.run`
+  비동기 콜백 안에서 바로 `window.open()`을 호출했는데, 이 시점은 사용자의
+  클릭이라는 "신뢰된 제스처" 범위를 벗어나 브라우저가 팝업으로 차단하는
+  경우가 있었다. 가상질문 생성과 같은 패턴으로 바꿔 해결: 옵션 모달을 닫으면
+  결과 모달(`examResultOverlay`)이 뜨고, 경과시간 표시하며 생성 → 완료되면
+  모달에는 문제 개수 등 짧은 요약만 두고 `openExamResultWindow()`를 자동
+  호출해 새 탭을 시도한다. 이때도 차단될 수 있으므로 모달 하단에 [닫기]/
+  [다시 생성]/[새 탭에서 보기] 버튼을 항상 남겨두고, [새 탭에서 보기] 클릭은
+  진짜 사용자 제스처라 차단되지 않는다(`reopenExamResultWindow()`).
 - **DB구조.sql 실행 필요**: 기존 Supabase 프로젝트는 이미
   `virtual_question_personas`가 있는 상태라, `exam_level` 컬럼 추가는
   전체 파일 재실행이 아니라 아래 ALTER/UPDATE만 SQL Editor에서 실행하면
@@ -593,11 +602,80 @@ Claude Code 지시 → 코드 검토 → `clasp push --force`(해당 폴더에�
   update virtual_question_personas set exam_level = 'advanced'     where persona_id = 'major_practice';
   ```
 
+### 강의자료 평가 - 구현 완료(2026-08-02)
+슬라이드 본문·실시간 설문 결과·가상질문을 근거로 교안을 검토하는 기능.
+근거가 될 실시간 설문·가상질문이 아직 하나도 없는 강의도 있을 수 있어서,
+그 경우엔 슬라이드 구성만으로 하는 검토(무엇이 부족한지 지어내지 않고
+"반응 데이터 없음"을 명시)로 자연스럽게 좁아지도록 설계했다.
+
+- **흐름**: [강의자료 평가] 버튼 → AI_MODE 게이트 → 캐시 확인
+  (`getLectureEvaluationCache`) → 있으면 바로 표시, 없으면 자동으로 생성
+  시작(`generateLectureEvaluation`, 경과시간 표시) → 결과는 새 탭이 아니라
+  결과 모달 안에 그대로 표시(가상질문·시험문제와 달리 문항 목록이 아니라
+  산문형 리포트라 새 탭 없이도 다 담김) → [다시 평가]로 재생성 가능
+  (`system-b-dashboard/Dashboard.html`의 `evaluateMaterial`/`showEvalResultReady`
+  계열 함수).
+- **캐시 정책**: 가상질문과 동일하게 키워드당 최신 결과 1건만 유지
+  (`lecture_evaluations` 테이블, `uq_lecture_evaluations_keyword` UPSERT
+  기준). [다시 평가]를 눌러야만 재호출.
+- **리포트 구성과 근거 표시(핵심 설계)**: 화면 맨 위에 "이 평가가 무엇을
+  근거로 했는지"(슬라이드 몇 장, 실시간 설문 몇 건, 어느 가상 학생 질문
+  몇 개)를 항상 먼저 보여준다. 이 문구는 **LLM이 아니라 ai-server 코드가
+  실제 조회 결과로 직접 조립**한다(`chains/lecture_evaluator.py`의
+  `build_evidence_basis()`) - "무엇을 참고했다"는 사실 진술을 LLM에 맡기면
+  안 쓴 데이터를 썼다고 하거나 개수를 틀리는 등 불필요한 hallucination
+  위험이 생기기 때문. 그 아래로 구조 검토(항상) → 실제/가상 반응 기반
+  검토(실시간 설문·가상질문 데이터가 하나라도 있을 때만, "실제 학생 응답"과
+  "가상 학생 질문"을 프롬프트로 명확히 구분해서 섞이지 않게 함) → AI 추가
+  의견(아래 참고) → 개선 제안 순으로 표시한다.
+- **AI 추가 의견(웹검색 기반) - 이 기능의 유일한 tool-calling 지점**: 나머지
+  세 섹션은 이미 조회해둔 DB 데이터만으로 판단 가능해 고정 파이프라인
+  (구조화 출력 1회, `chains/lecture_evaluator.py`의 `_generate_core()`)이면
+  충분하지만, "이 강의 내용 중 현재 최신 기술/버전과 안 맞는 부분이
+  있는지"는 LLM이 검색 여부·검색어를 스스로 판단해야 하는 문제라 별도로
+  분리했다. OpenAI 내장 웹검색(Responses API의 hosted `web_search_preview`
+  도구, `llm_provider.get_web_search_llm()`)을 썼다 - 검색 자체는 OpenAI
+  서버 쪽에서 알아서 수행되므로 클라이언트가 검색→재호출을 반복하는
+  ReAct 루프를 직접 구현할 필요는 없고, 호출부는 평소처럼 `.invoke()` 한
+  번만 하면 된다. 새 검색 API 키 없이 기존 `OPENAI_KEY`로 바로 되고,
+  "전부 OpenAI로 통일" 정책과도 맞아서 별도 검색 API(Tavily 등) 대신
+  이걸 선택했다.
+  - 이 섹션은 **완전히 부가 기능**이다 - 특별히 지적할 내용이 없으면
+    모델이 정확히 "NONE"이라고만 답하도록 프롬프트에 명시해 억지로 만들어
+    내지 않게 했고(가상질문의 "질문 없음도 정상" 패턴 재적용), 호출
+    자체가 타임아웃·미지원 모델·API 오류 등 어떤 이유로든 실패해도
+    (`_generate_currency_review()`가 통째로 try/except) 조용히 그 섹션만
+    빠지고 나머지 리포트(근거·구조 검토·반응 검토·개선 제안)는 항상
+    정상 반환된다 - CLAUDE.md 규칙 10과 동일 원칙.
+  - 짧은 timeout(기본 25초, `llm_provider.get_web_search_llm(timeout=...)`)을
+    걸어뒀고, `ThreadPoolExecutor.submit()` + `future.result(timeout=...)`로
+    하드 타임아웃을 강제한다 - `with ThreadPoolExecutor(...)` 컨텍스트
+    매니저를 그냥 쓰면 `__exit__`가 `shutdown(wait=True)`를 호출해서
+    이미 `result(timeout=...)`로 포기한 뒤에도 스레드가 실제로 끝날
+    때까지 다시 블로킹되는 문제가 있어, `executor.shutdown(wait=False)`를
+    직접 호출하는 방식으로 피했다.
+  - **미확인 항목**: `use_responses_api=True` + `bind_tools([{"type":
+    "web_search_preview"}])` 조합이 실제 배포된 `langchain-openai` 버전에서
+    정확히 이 형태로 동작하는지는 아직 실기기로 확인 전이다(문서 기반
+    설계). 다만 실패해도 위 설계대로 그 섹션만 조용히 빠지므로, 이 부분이
+    깨져 있어도 나머지 평가 기능은 정상 동작해야 한다 - Cloud Run 배포 후
+    이 섹션이 실제로 채워지는지 별도 확인 필요.
+- **DB**: `lecture_evaluations` 테이블(`DB구조.sql` 6-1번 섹션) 신규 생성
+  완료(2026-08-02, 사용자가 직접 Supabase SQL Editor에서 실행). 컬럼:
+  `evidence_basis`(근거 스냅샷) · `structure_review` · `learner_signal_review`
+  (nullable) · `currency_review`(nullable) · `suggestions`(jsonb 배열) ·
+  `data_coverage`(`slide_only`/`slide_and_signals`). `unpublishLecture()`에도
+  정리 로직 추가(`deleteLectureEvaluationForKeyword`, 설문·슬라이드본문·
+  가상질문 삭제와 같은 시점).
+- **미확인 항목**: 위 웹검색 동작 확인 외에, Cloud Run 배포 후 실기기로
+  캐시 확인 → 생성(경과시간 표시) → 결과 모달 표시 → 다시 평가 전체 흐름
+  확인 필요(다른 AI 기능들처럼 이 세션에서는 코드 작성까지만 완료).
+
 ### 미착수
 - `system-c-excel` 프로젝트 자체가 아직 생성 안 됨.
-- 강의자료 요약(1페이지), 이해도 보고서, 강의자료 평가 — 전부 미구현
-  (계획 단계, 위 "기능별 ai-server 엔드포인트 현황" 표 참고).
-  실시간 설문·시험문제 생성·가상질문 생성은 구현 완료.
+- 강의자료 요약(1페이지), 이해도 보고서 — 미구현(계획 단계, 위 "기능별
+  ai-server 엔드포인트 현황" 표 참고). 실시간 설문·시험문제 생성·가상질문
+  생성·강의자료 평가는 구현 완료.
 
 ---
 

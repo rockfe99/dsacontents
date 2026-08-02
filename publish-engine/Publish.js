@@ -121,6 +121,8 @@ function lectureExists(keyword) {
  *    전부 삭제(deleteSlideContentsForKeyword).
  * 6) 그 키워드로 생성된 가상질문 결과(virtual_questions)도 Supabase에서
  *    전부 삭제(deleteVirtualQuestionsForKeyword).
+ * 7) 그 키워드로 생성된 강의자료 평가 결과(lecture_evaluations)도 Supabase에서
+ *    전부 삭제(deleteLectureEvaluationForKeyword).
  * @param {string} keyword
  * @return {Object} { keyword }
  */
@@ -173,6 +175,7 @@ function unpublishLecture(keyword) {
   deleteSurveyDataForKeyword(target);
   deleteSlideContentsForKeyword(target);
   deleteVirtualQuestionsForKeyword(target);
+  deleteLectureEvaluationForKeyword(target);
 
   return { keyword: target };
 }

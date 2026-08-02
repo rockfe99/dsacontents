@@ -214,6 +214,42 @@ create unique index uq_virtual_questions_keyword_persona
 
 
 -- ============================================================
+-- 6-1. 강의자료 평가 결과 테이블 (영구) — "강의자료 평가" 기능의 결과.
+--      virtual_questions와 같은 스냅샷 성격 - 키워드당 최신 결과 1건만
+--      유지하고, "다시 평가"를 누르면 덮어쓴다(히스토리 누적 안 함).
+--      슬라이드 본문(slide_contents)·설문 결과(survey_results)·가상질문
+--      (virtual_questions)을 근거로 만들어지며, evidence_basis에 그 시점에
+--      실제로 어떤 데이터를 참고했는지 스냅샷으로 남긴다(나중에 그 데이터가
+--      바뀌거나 지워져도 "이 평가가 뭘 근거로 했는지"는 그대로 확인 가능).
+-- ============================================================
+create table lecture_evaluations (
+  id                     bigserial primary key,
+  lecture_keyword        text  not null,        -- 강의 키워드 (조회 축)
+
+  evidence_basis         text  not null,         -- 코드가 생성한 근거 요약
+                                                  -- (슬라이드 텍스트 범위, 설문 결과 참고 건수,
+                                                  -- 가상질문 참고 페르소나·건수 - LLM이 아니라
+                                                  -- ai-server 코드가 실제 조회 결과로 조립)
+
+  structure_review       text  not null,         -- 슬라이드 구성·흐름 검토 (항상 생성됨)
+  learner_signal_review  text,                   -- 실시간 설문+가상질문 기반 검토
+                                                  -- (둘 다 없으면 null)
+  currency_review        text,                   -- 웹검색 기반 "최신 기술/버전" AI 추가 의견
+                                                  -- (웹검색 미실행·실패·특이사항 없음이면 null)
+  suggestions            jsonb not null,         -- 개선 제안 목록(문자열 배열)
+  data_coverage          text  not null
+                         check (data_coverage in ('slide_only', 'slide_and_signals')),
+                                                  -- 화면에 배지로 바로 노출할 요약 플래그
+
+  generated_at           timestamptz not null default now()
+);
+
+-- 키워드당 결과 1건만 유지("다시 평가"는 이 키워드 기준 UPSERT).
+create unique index uq_lecture_evaluations_keyword
+  on lecture_evaluations (lecture_keyword);
+
+
+-- ============================================================
 -- 7. RLS — anon/authenticated 키가 유출돼도 접근 불가능하도록 기본 차단.
 --    정책을 하나도 만들지 않으면 anon/authenticated 롤은 전부 거부되고,
 --    GAS가 쓰는 service_role 키는 RLS를 항상 우회하므로 정상 동작에는
@@ -225,6 +261,7 @@ alter table survey_results            enable row level security;
 alter table slide_contents            enable row level security;
 alter table virtual_question_personas enable row level security;
 alter table virtual_questions         enable row level security;
+alter table lecture_evaluations       enable row level security;
 
 
 -- ============================================================
