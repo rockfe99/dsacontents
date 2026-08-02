@@ -1,11 +1,12 @@
 # ai-server 배포 확인 절차
 
-Cloud Run 서비스는 GitHub 저장소 `rockfe99/dsacontents`(소스 하위 디렉터리
-`ai-server`)와 연결된 상태로 먼저 생성되었다. 서비스 최초 생성 시점에는
-`ai-server`의 파이썬 코드가 아직 미완성이었기 때문에 첫 빌드는 실패로
-시작되었다. 이 문서는 **AI 연동(Gemini·Supabase)은 배제하고**, Cloud Run ↔
-GitHub ↔ FastAPI 앱으로 이어지는 배포 경로 자체가 정상 동작하는지부터
-확인하는 순서를 규정한다.
+Cloud Run 서비스 `dsacontents-ai-api`(리전 `asia-northeast3`)는 GitHub 저장소
+`rockfe99/dsacontents`(소스 하위 디렉터리 `ai-server`)와 연결되어 있다.
+`ai-server`에 커밋을 `main` 브랜치로 push하면 빌드→배포까지 자동으로 끝난다.
+
+이 문서는 **AI 연동(OpenAI·Supabase)과 분리해서**, Cloud Run ↔ GitHub ↔
+FastAPI 앱으로 이어지는 배포 경로 자체가 정상 동작하는지 확인하는 순서를
+규정한다. 배포가 안 될 때 어디가 문제인지 좁히는 용도로 쓴다.
 
 ## 확인용 최소 엔드포인트
 
@@ -55,17 +56,16 @@ lstat /workspace/Dockerfile: no such file or directory
 ```
 디렉터리를 `ai-server`로 고쳐도 "Dockerfile" 빌드 유형 자체는 이미지를
 빌드해서 Artifact Registry에 **푸시까지만** 하고, Cloud Run에 실제로
-배포하는 단계(`gcloud run deploy`)가 빠져 있어서 빌드는 성공해도 새
-리비전이 자동으로 생기지 않았다(URL이 계속 `(첫 번째 빌드가 성공할
-때까지 숨겨짐)`으로 남고, 버전 탭에는 서비스 최초 생성 시 깔린
-`gcr.io/cloudrun/placeholder` 자리표시자 리비전만 보임).
+배포하는 단계(`gcloud run deploy`)가 빠져 있다. 그래서 빌드가 성공해도 새
+리비전이 생기지 않는다(URL이 계속 `(첫 번째 빌드가 성공할 때까지 숨겨짐)`으로
+남고, 버전 탭에는 서비스 최초 생성 시 깔린 `gcr.io/cloudrun/placeholder`
+자리표시자 리비전만 보인다).
 
 그래서 빌드·푸시·배포 3단계를 전부 명시하는 `ai-server/cloudbuild.yaml`을
 직접 작성해 사용한다. 트리거의 "대체 변수"(`_AR_HOSTNAME` 등)는 빌드
-유형을 바꾸는 과정에서 값이 비워지는 문제가 있었으므로, 그 변수들에
-의존하지 않고 실제 값(Artifact Registry 경로, 서비스명, 리전)을
-`cloudbuild.yaml` 안에 직접 하드코딩했다 — 이 값들은 프로젝트/서비스가
-바뀌지 않는 한 고정이므로 하드코딩이 더 안전하다.
+유형을 바꾸면 값이 비워지므로, 그 변수들에 의존하지 않고 실제 값(Artifact
+Registry 경로, 서비스명, 리전)을 `cloudbuild.yaml` 안에 직접 적어둔다 —
+이 값들은 프로젝트/서비스가 바뀌지 않는 한 고정이라 하드코딩이 더 안전하다.
 
 **Cloud Build → 트리거 → 해당 트리거 수정**에서:
 - **구성 → 유형**: `Cloud Build 구성 파일(YAML 또는 JSON)`
@@ -99,8 +99,12 @@ curl https://<서비스 URL>/
 돌아오면, GitHub → Cloud Build → Cloud Run → FastAPI 앱까지 이어지는 배포
 경로 전체가 정상 동작하는 것으로 확인된 것이다.
 
-### 6. (이번 확인 범위 밖) AI 연동 테스트
-위 확인이 끝난 뒤에만 진행한다. Cloud Run 서비스의 **환경변수**에
-`OPENAI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY`를 등록하고,
-`POST /exam-questions`를 `X-API-Key` 헤더와 함께 호출해 실제 AI 기능이
-동작하는지 별도로 확인한다.
+### 6. AI 연동 확인
+배포 경로 확인이 끝난 뒤에 진행한다. Cloud Run 서비스의 **환경변수**에
+`OPENAI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY`(+ 선택적으로
+`OPENAI_MODEL`)를 등록하고, `POST /exam-questions`를 `X-API-Key` 헤더와
+함께 호출해 실제 AI 기능이 동작하는지 확인한다.
+
+GAS 스크립트 속성과 Cloud Run 환경변수는 완전히 별도 저장소다 —
+`SUPABASE_URL`/`SUPABASE_KEY`처럼 양쪽에서 다 필요한 값은 각각 등록해야
+한다(한쪽에만 있으면 다른 쪽에서 조회가 실패한다).

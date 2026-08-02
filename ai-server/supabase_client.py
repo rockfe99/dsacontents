@@ -1,9 +1,13 @@
 """
-Supabase(PostgREST) 읽기 전용 클라이언트 — slide_contents·virtual_question_personas 조회 전용.
+Supabase(PostgREST) 읽기 전용 클라이언트 — 슬라이드 본문(slide_contents),
+페르소나·가상질문(virtual_question_personas, virtual_questions), 설문 결과
+(survey_results) 조회를 담당한다. 쓰기는 하지 않는다(결과 저장은 GAS 쪽
+publish-engine이 맡는다).
 
 publish-engine/Survey.js의 supabaseRequest_()와 같은 REST 규약(apikey/Authorization
 헤더, {SUPABASE_URL}/rest/v1/{path})을 그대로 따른다. SUPABASE_KEY는 GAS 쪽과 동일한
-legacy JWT service_role 키 값을 이 서버의 환경변수로도 등록해서 쓴다.
+service_role 키 값을 이 서버의 환경변수로도 등록해서 쓴다(GAS 스크립트 속성과
+Cloud Run 환경변수는 별도 저장소라 각각 등록해야 함).
 """
 
 import os
@@ -31,16 +35,11 @@ def join_slide_text(segments: list[dict]) -> str:
     )
 
 
-def get_slide_text(keyword: str) -> str:
-    """키워드로 slide_contents를 슬라이드 순서대로 조회해 하나의 텍스트로 이어붙인다.
-    시험문제 생성(/exam-questions)이 쓴다."""
-    return join_slide_text(get_slide_segments(keyword))
-
-
 def get_slide_segments(keyword: str) -> list[dict]:
     """키워드로 slide_contents를 슬라이드 순서대로 조회해 원본 리스트 그대로
-    반환한다([{slide_index, slide_text}, ...]). 가상질문 생성(/virtual-questions)이
-    슬라이드를 Part 1/2/3 구간으로 나누는 데 쓴다."""
+    반환한다([{slide_index, slide_text}, ...]). 슬라이드 개수가 필요하거나
+    구간을 나눠야 하는 호출부는 이 함수를 쓰고, 하나의 텍스트가 필요하면
+    join_slide_text()로 이어붙인다."""
     _require_config()
 
     url = f"{SUPABASE_URL}/rest/v1/slide_contents"

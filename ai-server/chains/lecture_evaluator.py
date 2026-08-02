@@ -16,15 +16,15 @@
 4) currency_review - 웹검색 기반 "AI 추가 의견"(최신 기술/버전 검토). 부가
    기능이라 최종 실패해도(레이트리밋·타임아웃·미지원 모델 등) 조용히
    None으로 두고 나머지 리포트는 정상 반환한다(CLAUDE.md 규칙 10과 동일
-   원칙). 검색+요약을 한 호출에 다 맡기면(실기기에서 반복 확인) 언어·톤·
-   마크다운 금지 같은 스타일 지시가 잘 안 지켜져서(영어로 답하거나 목록
-   형태 원문을 그대로 인용) 두 단계로 나눴다:
+   원칙). 검색과 요약은 두 단계로 나눈다 - 검색 도구가 걸린 호출에서는
+   모델이 "찾은 내용을 보고하는" 기본 동작 쪽으로 쏠려서 언어·톤·마크다운
+   금지 같은 스타일 지시를 잘 따르지 않기 때문(영어로 답하거나 원문을 그대로
+   목록으로 인용):
    a) _run_web_search() - 웹검색 도구로 원시 조사 결과만 받는다(언어·형식
       신경 안 씀). 슬라이드 전체 텍스트 대신 이미 만들어진
-      structure_review(짧은 요약)를 검색 맥락으로 쓴다 - 토큰을 아낄 수
-      있고(핵심 평가 직후 슬라이드 전체를 또 보내다 분당 토큰 한도(TPM)에
-      걸리는 429가 실기기에서 관측됐음), 검색 도구 입장에서도 핵심만
-      간결하게 받는 게 낫다.
+      structure_review(짧은 요약)를 검색 맥락으로 쓴다 - 핵심 평가 직후
+      슬라이드 전체를 또 보내면 분당 토큰 한도(TPM)에 걸리고, 검색 도구
+      입장에서도 핵심만 간결하게 받는 게 낫다.
    b) _rewrite_currency_review() - 검색 도구 없는 일반 호출로 그 원시
       결과를 한국어 요약 의견으로 다시 쓴다. 도구 없는 순수 지시 따르기
       호출이라 언어·톤·마크다운 금지 지시가 훨씬 안정적으로 지켜진다.
@@ -43,17 +43,17 @@ from llm_provider import get_openai_llm, get_web_search_llm
 logger = logging.getLogger(__name__)
 
 # OpenAI 웹검색 도구는 프롬프트로 "링크 쓰지 마라"고 해도 도구 차원에서
-# 출처를 마크다운 링크로 자동 첨부하는 경우가 있다(실기기에서 확인). 화면이
-# 마크다운을 렌더링하지 않아 그대로 두면 `[텍스트](주소)` 글자가 그대로
-# 노출되므로, 코드에서도 한 번 더 안전망으로 제거한다.
+# 출처를 마크다운 링크로 자동 첨부하는 경우가 있다. 화면이 마크다운을
+# 렌더링하지 않아 그대로 두면 `[텍스트](주소)` 글자가 그대로 노출되므로,
+# 코드에서도 한 번 더 안전망으로 제거한다.
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 _CURRENCY_SEARCH_TIMEOUT = 25
 _CURRENCY_REWRITE_TIMEOUT = 15
 _CURRENCY_MAX_ATTEMPTS = 2
-# 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려 429가 나는 경우가
-# 실제로 관측됨 - OpenAI가 에러에 함께 알려주는 재시도 대기 시간(보통 1~2초)보다
-# 넉넉하게 잡아 한 번만 재시도한다.
+# 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려 429가 날 수 있다.
+# OpenAI가 에러에 함께 알려주는 재시도 대기 시간(보통 1~2초)보다 넉넉하게
+# 잡아 한 번만 재시도한다.
 _CURRENCY_RETRY_DELAY = 3
 
 
@@ -200,8 +200,8 @@ def _generate_core(slide_text: str, survey_rows: list[dict], persona_groups: lis
 def _extract_text_content(content) -> str:
     """LangChain 메시지의 .content를 텍스트로 정규화한다. 일반 호출은 content가
     보통 문자열이지만, Responses API로 웹검색 같은 호스티드 도구를 쓰면 텍스트
-    블록과 도구 호출/검색 결과 블록이 섞인 리스트로 오는 경우가 실기기에서
-    확인됨(예: [{"type": "text", "text": "..."}, {"type": "web_search_call", ...}]) -
+    블록과 도구 호출/검색 결과 블록이 섞인 리스트로 오는 경우가 있다
+    (예: [{"type": "text", "text": "..."}, {"type": "web_search_call", ...}]) -
     문자열 타입의 텍스트 블록만 골라 이어붙인다."""
     if isinstance(content, str):
         return content
@@ -227,15 +227,12 @@ def _strip_markdown_links(text: str) -> str:
 def _generate_currency_review(topic_summary: str) -> Optional[str]:
     """웹검색 기반 "AI 추가 의견". 이 함수는 절대 예외를 던지지 않는다 - 안쪽
     로직이 어디서 어떤 이유로 실패하든(레이트리밋·타임아웃·미지원 모델·응답
-    형태 변경 등, 심지어 아직 겪어보지 못한 새로운 오류라도) 이 함수 바깥의
-    generate()는 항상 이 호출이 성공적으로 반환된다고 믿을 수 있어야 한다 -
-    부가 기능 하나의 실패가 근거 명시·구조 검토 등 핵심 평가 전체를 함께
-    끌고 내려가면 안 되기 때문(과거 실기기 테스트에서 실제로 이 함수 안의
-    예외가 안 잡혀서 전체 요청이 500으로 죽고, 화면에는 원인과 무관하게
-    "AI 크레딧 필요" 안내만 뜨며 이미 만들어진 핵심 평가까지 통째로 날아간
-    적이 있었음 - 그래서 아래 로직 전체를 최상위 try/except로 한 번 더
-    감싼다). 개별 단계(검색, 재작성)에서도 각각 방어하지만, 그건 로그를 더
-    구체적으로 남기기 위함이고 최종 안전망은 이 바깥쪽 try다."""
+    형태 변경 등, 아직 겪어보지 못한 새로운 오류까지 포함) 항상 None으로
+    수렴한다. 부가 기능 하나의 실패가 근거 명시·구조 검토 등 핵심 평가 전체를
+    함께 끌고 내려가면 안 되므로(요청 전체가 500으로 죽으면 이미 만들어진
+    핵심 평가까지 버려진다), 아래 로직 전체를 최상위 try/except로 감싼다.
+    개별 단계(검색, 재작성)에서도 각각 방어하지만 그건 로그를 더 구체적으로
+    남기기 위함이고, 최종 안전망은 이 바깥쪽 try다."""
     try:
         raw = _run_web_search(topic_summary)
         if not raw:
@@ -248,11 +245,10 @@ def _generate_currency_review(topic_summary: str) -> Optional[str]:
 
 def _run_web_search(topic_summary: str) -> Optional[str]:
     """1단계: 웹검색 도구로 원시 조사 결과를 가져온다(언어·형식 다듬기는
-    이 단계의 책임이 아니다 - _rewrite_currency_review()가 처리). 실기기
-    테스트에서 핵심 평가 호출 직후라 조직 분당 토큰 한도(TPM)에 걸려
-    RateLimitError(429)가 나는 경우가 실제로 관측됐다 - OpenAI가 보통 1~2초
-    후 재시도를 권하는 순간적인 초과라, 최대 _CURRENCY_MAX_ATTEMPTS회까지
-    짧게 대기 후 재시도한다."""
+    이 단계의 책임이 아니다 - _rewrite_currency_review()가 처리). 핵심 평가
+    호출 직후라 조직 분당 토큰 한도(TPM)에 걸려 RateLimitError(429)가 날 수
+    있는데, 보통 1~2초 후 재시도가 권장되는 순간적인 초과라 최대
+    _CURRENCY_MAX_ATTEMPTS회까지 짧게 대기 후 재시도한다."""
     prompt = _SEARCH_PROMPT_TEMPLATE.format(topic_summary=topic_summary)
     result = None
 
@@ -292,8 +288,7 @@ def _rewrite_currency_review(topic_summary: str, raw_findings: str) -> Optional[
     """2단계: 검색 원문(영어·목록형일 수 있음)을 한국어 요약 의견으로 다시
     쓴다. 검색 도구 없는 일반 호출이라 언어·톤·마크다운 금지 같은 스타일
     지시를 훨씬 안정적으로 따른다(검색 도구를 같이 쓰는 호출에서는 이런
-    스타일 지시가 잘 안 지켜지는 것을 실기기에서 반복 확인했다 - 영어로
-    답하거나 원문을 그대로 목록으로 인용하는 문제가 있었음)."""
+    지시가 잘 지켜지지 않는다 - 모듈 상단 설명 참고)."""
     llm = get_openai_llm(timeout=_CURRENCY_REWRITE_TIMEOUT)
     prompt = _REWRITE_PROMPT_TEMPLATE.format(topic_summary=topic_summary, raw_findings=raw_findings)
     result = llm.invoke(prompt)
@@ -312,9 +307,8 @@ def generate(slide_count: int, slide_text: str, survey_rows: list[dict], persona
     evidence_basis = build_evidence_basis(slide_count, survey_rows, persona_groups)
     core = _generate_core(slide_text, survey_rows, persona_groups)
     # 웹검색 단계는 슬라이드 전체 텍스트가 아니라 core.structure_review(짧은
-    # 요약)를 맥락으로 쓴다 - 토큰을 아끼고(핵심 평가 직후 전체 텍스트를 또
-    # 보내다 TPM 한도에 걸리는 문제가 실기기에서 있었음) 검색 도구 입장에서도
-    # 핵심만 간결하게 받는 게 낫다.
+    # 요약)를 맥락으로 쓴다 - 핵심 평가 직후 전체 텍스트를 또 보내면 TPM
+    # 한도에 걸리고, 검색 도구 입장에서도 핵심만 간결하게 받는 게 낫다.
     currency_review = _generate_currency_review(core.structure_review)
 
     return {

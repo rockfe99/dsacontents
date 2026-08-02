@@ -112,8 +112,8 @@ create index idx_survey_results_keyword on survey_results (lecture_keyword);
 
 
 -- ============================================================
--- 4. 슬라이드 본문 텍스트 테이블 — 강의 요약·챗봇·강의자료평가·시험문제
---    생성에 쓸 원문. survey_results와 달리 "누적"이 아니라 "현재 슬라이드의
+-- 4. 슬라이드 본문 텍스트 테이블 — 시험문제 생성·가상질문 생성·강의자료
+--    평가에 쓰는 원문. survey_results와 달리 "누적"이 아니라 "현재 슬라이드의
 --    스냅샷"이다 — 슬라이드가 교체되면 이전 내용을 지우고 새로 채운다
 --    (목차데이터 폴더의 키워드.json과 같은 성격).
 --
@@ -139,7 +139,7 @@ create table slide_contents (
 create unique index uq_slide_contents_keyword_index
   on slide_contents (lecture_keyword, slide_index);
 
--- 강의 요약·챗봇 등에서 키워드 기준으로 전체 조회할 때 쓰는 인덱스
+-- AI 기능에서 키워드 기준으로 전체 조회할 때 쓰는 인덱스
 create index idx_slide_contents_keyword on slide_contents (lecture_keyword);
 
 

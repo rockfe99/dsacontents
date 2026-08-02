@@ -9,7 +9,10 @@
  *  [스크립트 속성 등록]  프로젝트 설정 > 스크립트 속성에 아래 키 등록:
  *    공용: PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL, AI_SERVER_URL, AI_MODE
  *    민감: SUPABASE_URL, SUPABASE_KEY, AI_SERVER_KEY   (실제 값 채우기)
- *  또는 setAllProperties()를 한 번 실행해 일괄 등록.
+ *  등록 상태는 checkSettings()를 실행해 확인한다(민감값은 설정 여부만 표시).
+ *
+ *  모델 제공자 API 키(OPENAI_KEY)는 여기가 아니라 ai-server의 Cloud Run
+ *  환경변수에만 둔다 - GAS는 그 키를 직접 다루지 않는다.
  *
  *  [AI_MODE]  관리자가 AI 활용 기능(시험문제 생성·가상질문 생성·강의자료 평가)을
  *    켜고 끄는 스위치. 'true'일 때만 사용 가능, 그 외(미설정 포함)는 꺼진 것으로
@@ -20,7 +23,7 @@
  *  [다른 프로젝트에서 호출]  라이브러리 식별자를 'PublishEngine'으로 추가 후:
  *    PublishEngine.getConfig()              // 공용 설정 묶음
  *    PublishEngine.getSetting('DB_SHEET_ID')// 공용 값 하나
- *    PublishEngine.getSecret('GEMINI_KEY')  // 민감 값(허용된 키만)
+ *    PublishEngine.getSecret('SUPABASE_KEY')// 민감 값(허용된 키만)
  * ============================================================
  */
 
@@ -43,8 +46,8 @@ const SECRET_KEYS = [
 ];
 
 /**
- * 게시엔진 자체가 쓰는 기존 설정(하위 호환 유지).
- * 배포/목차 로직이 이 함수를 그대로 사용한다.
+ * 게시엔진 자체(배포·목차 로직)가 쓰는 필수 설정만 묶어서 반환한다.
+ * 둘 중 하나라도 없으면 에러를 던져 원인을 바로 알린다.
  */
 function getConfig() {
   const props = PropertiesService.getScriptProperties();
@@ -62,8 +65,9 @@ function getConfig() {
 }
 
 /**
- * 공용 설정 전체를 객체로 반환(다른 프로젝트가 호출).
- * @return {Object}  { PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL }
+ * 공용 설정 전체를 객체로 반환(다른 프로젝트가 호출). PUBLIC_KEYS 전체가
+ * 담기며, 미설정 키는 빈 문자열이다.
+ * @return {Object}  { PARENT_FOLDER_ID, DB_SHEET_ID, VIEWER_URL, AI_SERVER_URL, AI_MODE }
  */
 function getPublicConfig() {
   const props = PropertiesService.getScriptProperties();

@@ -162,8 +162,8 @@ function cleanupStaleSurveys_() {
  * 강의(키워드)를 완전히 삭제할 때 그 키워드에 쌓인 설문 데이터를 전부 지운다.
  * Publish.js의 unpublishLecture()에서 DB 시트 행·키워드.json 삭제와 함께 호출한다
  * (키워드 재사용 시 예전 강의의 설문 결과가 새 강의에 섞이는 것을 방지).
- * 나중에 슬라이드 본문 텍스트 저장 테이블이 생기면, 그 테이블의 키워드별 삭제도
- * 이 함수에 같이 추가할 것.
+ * 슬라이드 본문·가상질문·강의자료 평가 정리는 각 파일의 전용 삭제 함수가
+ * 맡고, unpublishLecture()가 이 함수와 함께 호출한다.
  * @param {string} lectureKeyword
  */
 function deleteSurveyDataForKeyword(lectureKeyword) {
