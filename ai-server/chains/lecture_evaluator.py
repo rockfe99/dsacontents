@@ -22,6 +22,7 @@
 """
 
 import logging
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal, Optional
@@ -31,6 +32,12 @@ from pydantic import BaseModel, Field
 from llm_provider import get_openai_llm, get_web_search_llm
 
 logger = logging.getLogger(__name__)
+
+# OpenAI 웹검색 도구는 프롬프트로 "링크 쓰지 마라"고 해도 도구 차원에서
+# 출처를 마크다운 링크로 자동 첨부하는 경우가 있다(실기기에서 확인). 화면이
+# 마크다운을 렌더링하지 않아 그대로 두면 `[텍스트](주소)` 글자가 그대로
+# 노출되므로, 코드에서도 한 번 더 안전망으로 제거한다.
+_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 
 _CURRENCY_SEARCH_TIMEOUT = 25
 _CURRENCY_MAX_ATTEMPTS = 2
@@ -85,12 +92,25 @@ _CURRENCY_PROMPT_TEMPLATE = """다음은 어떤 강의 슬라이드의 내용입
 
 [요청]
 당신의 웹 검색 능력을 활용해, 이 강의 내용 중 현재 시점 기준으로 오래되었거나
-최신 기술·버전과 맞지 않는 부분이 있는지 확인하세요. 확실한 근거가 있을 때만
-언급하고, 특별히 지적할 내용이 없으면 다른 말 없이 정확히 "NONE"이라고만
-답하세요(있지도 않은 문제를 억지로 만들지 마세요). 언급할 내용이 있다면
-한국어로 2~4문장 정도, 강사가 참고할 수 있는 톤으로 작성하세요. 이 의견은
-당신의 지식과 검색 결과에 기반한 참고 의견이며 이 강의의 실제 학생 데이터와는
-무관하다는 점을 첫 문장에 명시하세요.
+최신 기술·버전과 맞지 않는 부분이 있는지 확인하세요.
+
+- **이 강의 슬라이드에 실제로 나온 내용과 연결지어서만** 언급하세요. 검색으로
+  찾은 사실을 그 자체로 나열하지 말고, "슬라이드에서 다루는 X 관련해서
+  현재는 이렇게 바뀌었다/이 점을 참고하면 좋겠다"처럼 이 강의와의 관련성이
+  드러나게 쓰세요.
+- 확실한 근거가 있을 때만 언급하고, 특별히 지적할 내용이 없으면 다른 말 없이
+  정확히 "NONE"이라고만 답하세요(있지도 않은 문제를 억지로 만들지 마세요).
+- 검색 결과가 영어 등 다른 언어여도 **반드시 한국어로 번역해서** 작성하세요.
+  검색 결과 원문을 그대로 인용하지 마세요.
+- 마크다운 링크·각주·출처 URL을 절대 쓰지 마세요(예: `[사이트](주소)`,
+  `(출처: ...)` 형식 전부 금지) - 이 결과는 마크다운을 지원하지 않는 화면에
+  그대로 표시되므로, 링크 문법이 그대로 깨진 글자로 노출됩니다. 순수한
+  문장으로만, 필요하면 사이트/제품 이름 정도만 텍스트로 언급하세요.
+- 언급할 내용이 있다면 한국어로 짧게 요약된 의견 2~4문장 정도, 강사가
+  참고할 수 있는 자연스러운 톤으로 작성하세요(사실을 나열하는 보고서 톤이
+  아니라, 동료가 조언해주는 듯한 요약 의견 톤).
+- 이 의견은 당신의 지식과 검색 결과에 기반한 참고 의견이며 이 강의의 실제
+  학생 데이터와는 무관하다는 점을 첫 문장에 명시하세요.
 """
 
 
@@ -178,6 +198,12 @@ def _extract_text_content(content) -> str:
     return ""
 
 
+def _strip_markdown_links(text: str) -> str:
+    """`[텍스트](주소)` 형태의 마크다운 링크에서 텍스트만 남기고 주소는 버린다
+    (완전히 없애면 문장이 어색해질 수 있어 링크 텍스트는 살려둔다)."""
+    return _MARKDOWN_LINK_RE.sub(r"\1", text)
+
+
 def _generate_currency_review(slide_text: str) -> Optional[str]:
     """웹검색 기반 "AI 추가 의견". 이 함수는 절대 예외를 던지지 않는다 - 안쪽
     로직이 어디서 어떤 이유로 실패하든(레이트리밋·타임아웃·미지원 모델·응답
@@ -232,6 +258,7 @@ def _try_generate_currency_review(slide_text: str) -> Optional[str]:
             executor.shutdown(wait=False)
 
     text = _extract_text_content(result.content).strip() if result is not None else ""
+    text = _strip_markdown_links(text).strip()
     if not text or text.upper() == "NONE":
         return None
     return text
