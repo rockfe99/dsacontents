@@ -23,7 +23,7 @@ function testStep1() {
  * ② 목차데이터 폴더에 keyword.json이 생겼는지 ③ DB 스프레드시트에 행이 들어갔는지.
  */
 function testPublish() {
-  const TEST_SLIDE_URL = 'https://docs.google.com/presentation/d/1vXh5uK7-RTrfUZR3orBM0cZoPv7HBkdwU00dhjqgfUA/edit?slide=id.p1#slide=id.p1';
+  const TEST_SLIDE_URL = '여기에 슬라이드 URL을 넣고 테스트';
   const TEST_KEYWORD = 'test01';
   const TEST_TITLE = '테스트 강의';
 

@@ -17,15 +17,18 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
 
+# 환경변수 확인 - 이 모듈의 모든 조회 함수가 첫 줄에서 호출한다(미설정이면 RuntimeError → main.py가 500으로 변환).
 def _require_config() -> None:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise RuntimeError("SUPABASE_URL/SUPABASE_KEY 환경변수가 설정되어 있지 않습니다.")
 
 
+# PostgREST 공통 인증 헤더 조립 - 이 모듈의 모든 requests 호출이 그대로 쓴다.
 def _headers() -> dict:
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
 
 
+# 슬라이드 세그먼트 리스트를 프롬프트용 단일 텍스트로 변환 - main.py의 /exam-questions·/lecture-evaluation이 쓴다.
 def join_slide_text(segments: list[dict]) -> str:
     """get_slide_segments()가 반환한 리스트를 [슬라이드 N] 텍스트로 이어붙인다.
     슬라이드 개수(len(segments))가 따로 필요한 호출부(강의자료 평가)는
@@ -35,6 +38,7 @@ def join_slide_text(segments: list[dict]) -> str:
     )
 
 
+# slide_contents 조회 - 세 엔드포인트(/exam-questions·/virtual-questions·/lecture-evaluation) 모두의 기본 근거 데이터.
 def get_slide_segments(keyword: str) -> list[dict]:
     """키워드로 slide_contents를 슬라이드 순서대로 조회해 원본 리스트 그대로
     반환한다([{slide_index, slide_text}, ...]). 슬라이드 개수가 필요하거나
@@ -54,6 +58,7 @@ def get_slide_segments(keyword: str) -> list[dict]:
     return res.json()
 
 
+# 페르소나 1건 조회(prompt 포함) - /virtual-questions가 LangGraph에 넘길 페르소나 프롬프트를 가져오는 통로.
 def get_persona(persona_id: str) -> dict | None:
     """가상질문 생성용 학생 페르소나 1건을 조회한다(active=true인 것만).
     없거나 비활성화된 persona_id면 None."""
@@ -72,6 +77,7 @@ def get_persona(persona_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+# 난이도(exam_level) 매칭 페르소나의 가상질문만 모아 조회 - /exam-questions의 출제 참고자료 전용.
 def get_virtual_questions(keyword: str, exam_level: str) -> list[dict]:
     """그 키워드로 생성되어 있는 가상질문 결과 중, 요청한 시험 난이도(exam_level)와
     매칭되는 페르소나(virtual_question_personas.exam_level)의 결과만 모아
@@ -107,6 +113,7 @@ def get_virtual_questions(keyword: str, exam_level: str) -> list[dict]:
     return flattened
 
 
+# 저장된 실시간 설문 결과 조회 - /lecture-evaluation의 "실제 학생 응답" 근거.
 def get_survey_results(keyword: str) -> list[dict]:
     """그 키워드로 누적된 모든 실시간 설문 결과(finalize_survey()로 저장된 것만 -
     저장 안 하고 종료한 설문은 여기 없음)를 오래된 순으로 반환한다.
@@ -125,6 +132,7 @@ def get_survey_results(keyword: str) -> list[dict]:
     return res.json()
 
 
+# 활성 페르소나 전원 + 해당 키워드의 가상질문을 "학생N(이름)" 라벨과 함께 조회 - /lecture-evaluation 전용.
 def get_virtual_questions_by_persona(keyword: str) -> list[dict]:
     """활성 페르소나 전원을 display_order 순으로 반환하되, 그 키워드로 실제
     생성된 가상질문이 있으면 questions를 채우고 없으면 빈 리스트로 둔다.

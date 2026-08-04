@@ -57,6 +57,7 @@ _CURRENCY_MAX_ATTEMPTS = 2
 _CURRENCY_RETRY_DELAY = 3
 
 
+# 핵심 평가(_generate_core)의 구조화 출력 스키마 - 웹검색 기반 currency_review를 뺀 나머지 항목을 한 번에 받는다.
 class _CoreEvaluation(BaseModel):
     structure_review: str = Field(
         description="슬라이드 구성·전개 순서·개념 도입 방식에 대한 검토(슬라이드 내용만 근거)"
@@ -134,6 +135,7 @@ _REWRITE_PROMPT_TEMPLATE = """아래는 어떤 강의 내용의 핵심 요약과
 """
 
 
+# 실시간 설문 결과를 프롬프트 섹션 문자열로 조립 - 결과가 없으면 빈 문자열(섹션 자체가 사라짐). _generate_core()에서만 사용.
 def _build_survey_section(rows: list[dict]) -> str:
     if not rows:
         return ""
@@ -151,6 +153,7 @@ def _build_survey_section(rows: list[dict]) -> str:
     return "\n[실시간 설문 결과 - 실제 학생 응답]\n" + "\n".join(lines) + "\n"
 
 
+# 가상 학생 질문을 프롬프트 섹션 문자열로 조립 - 실제 응답과 섞이지 않도록 "실제 데이터 아님"을 제목에 명시한다. _generate_core()에서만 사용.
 def _build_vq_section(persona_groups: list[dict]) -> str:
     active = [g for g in persona_groups if g["questions"]]
     if not active:
@@ -163,6 +166,7 @@ def _build_vq_section(persona_groups: list[dict]) -> str:
     return "\n[가상 학생 질문 - AI가 시뮬레이션한 질문, 실제 학생 데이터 아님]\n" + "\n".join(lines) + "\n"
 
 
+# 리포트 맨 앞의 "근거 명시" 문구를 코드가 직접 조립 - LLM을 거치지 않아 개수·참조 대상이 항상 사실과 일치한다(generate()가 호출).
 def build_evidence_basis(slide_count: int, survey_rows: list[dict], persona_groups: list[dict]) -> str:
     """어떤 데이터를 근거로 평가했는지 코드가 직접 조립하는 요약(LLM 생성 아님).
     리포트 맨 앞에 고정으로 붙는다."""
@@ -183,6 +187,7 @@ def build_evidence_basis(slide_count: int, survey_rows: list[dict], persona_grou
     return "\n".join(lines)
 
 
+# 핵심 평가 생성(구조 검토·반응 검토·개선 제안) - 도구 없는 구조화 출력 1회. 이 리포트의 필수 부분이라 실패하면 그대로 예외가 올라간다.
 def _generate_core(slide_text: str, survey_rows: list[dict], persona_groups: list[dict]) -> _CoreEvaluation:
     llm = get_openai_llm()
     structured_llm = llm.with_structured_output(_CoreEvaluation)
@@ -197,6 +202,7 @@ def _generate_core(slide_text: str, survey_rows: list[dict], persona_groups: lis
     return result
 
 
+# 응답 content 정규화(문자열/블록 리스트 양쪽 대응) - 웹검색 2단계(_run_web_search·_rewrite_currency_review)가 공통으로 쓴다.
 def _extract_text_content(content) -> str:
     """LangChain 메시지의 .content를 텍스트로 정규화한다. 일반 호출은 content가
     보통 문자열이지만, Responses API로 웹검색 같은 호스티드 도구를 쓰면 텍스트
@@ -218,12 +224,14 @@ def _extract_text_content(content) -> str:
     return ""
 
 
+# 마크다운 링크 제거 안전망 - 화면이 마크다운을 렌더링하지 않으므로 _rewrite_currency_review() 결과에 적용한다.
 def _strip_markdown_links(text: str) -> str:
     """`[텍스트](주소)` 형태의 마크다운 링크에서 텍스트만 남기고 주소는 버린다
     (완전히 없애면 문장이 어색해질 수 있어 링크 텍스트는 살려둔다)."""
     return _MARKDOWN_LINK_RE.sub(r"\1", text)
 
 
+# "AI 추가 의견"(최신성 검토) 생성 총괄 - 검색→재작성 2단계를 묶고, 어떤 실패든 None으로 흡수하는 최종 안전망(generate()가 호출).
 def _generate_currency_review(topic_summary: str) -> Optional[str]:
     """웹검색 기반 "AI 추가 의견". 이 함수는 절대 예외를 던지지 않는다 - 안쪽
     로직이 어디서 어떤 이유로 실패하든(레이트리밋·타임아웃·미지원 모델·응답
@@ -243,6 +251,7 @@ def _generate_currency_review(topic_summary: str) -> Optional[str]:
         return None
 
 
+# 최신성 검토 1단계 - OpenAI 내장 웹검색으로 원시 조사 결과만 확보(하드 타임아웃 + 429 대비 1회 재시도). _generate_currency_review()에서만 호출.
 def _run_web_search(topic_summary: str) -> Optional[str]:
     """1단계: 웹검색 도구로 원시 조사 결과를 가져온다(언어·형식 다듬기는
     이 단계의 책임이 아니다 - _rewrite_currency_review()가 처리). 핵심 평가
@@ -284,6 +293,7 @@ def _run_web_search(topic_summary: str) -> Optional[str]:
     return text
 
 
+# 최신성 검토 2단계 - 검색 원문을 도구 없는 일반 호출로 한국어 요약 의견으로 다시 쓴다. _generate_currency_review()에서만 호출.
 def _rewrite_currency_review(topic_summary: str, raw_findings: str) -> Optional[str]:
     """2단계: 검색 원문(영어·목록형일 수 있음)을 한국어 요약 의견으로 다시
     쓴다. 검색 도구 없는 일반 호출이라 언어·톤·마크다운 금지 같은 스타일
@@ -300,6 +310,7 @@ def _rewrite_currency_review(topic_summary: str, raw_findings: str) -> Optional[
     return text
 
 
+# 강의자료 평가 진입점 - main.py의 /lecture-evaluation이 호출하는 이 모듈의 유일한 공개 진입 함수(근거 조립 + 핵심 평가 + 부가 최신성 검토).
 def generate(slide_count: int, slide_text: str, survey_rows: list[dict], persona_groups: list[dict]) -> dict:
     """강의자료 평가 리포트를 생성한다. 근거 명시는 코드가 조립하고, 본문 평가는
     구조화 출력 1회, AI 추가 의견은 웹검색+재작성 호출 2회(best-effort)로 만든다.

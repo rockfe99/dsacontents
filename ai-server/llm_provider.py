@@ -16,6 +16,8 @@ OPENAI_KEY = os.environ.get("OPENAI_KEY", "")
 DEFAULT_MODEL = "gpt-4o"
 
 
+# 기본 ChatOpenAI 인스턴스 생성 - 모든 체인(exam_generator·opinion_summarizer·
+# virtual_question_agent·lecture_evaluator)이 공용으로 쓰는 진입점.
 def get_openai_llm(temperature: float = 0, timeout: float | None = None) -> ChatOpenAI:
     if not OPENAI_KEY:
         raise RuntimeError("OPENAI_KEY 환경변수가 설정되어 있지 않습니다.")
@@ -26,6 +28,8 @@ def get_openai_llm(temperature: float = 0, timeout: float | None = None) -> Chat
     return ChatOpenAI(**kwargs)
 
 
+# 웹검색 도구가 바인딩된 ChatOpenAI 인스턴스 - lecture_evaluator._run_web_search()에서만 쓴다
+# (프로젝트 전체에서 유일한 tool-calling 지점).
 def get_web_search_llm(timeout: float = 25) -> ChatOpenAI:
     """OpenAI 내장 웹검색 도구(Responses API의 hosted web_search_preview)를 바인딩한
     인스턴스. 검색은 OpenAI 서버 쪽에서 알아서 수행되므로(클라이언트가 검색→재호출을

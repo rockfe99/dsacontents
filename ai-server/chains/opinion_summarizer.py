@@ -62,6 +62,7 @@ _PROMPT_TEMPLATE = """당신은 수업 중 진행된 실시간 설문의 의견�
 """
 
 
+# 의견형 설문 요약 진입점 - main.py의 /opinion-summary가 호출하는 이 모듈의 유일한 공개 함수(구조화 출력 없이 단발 호출).
 def summarize(question_text: str, answers_text: str) -> str:
     llm = get_openai_llm()
     prompt = _PROMPT_TEMPLATE.format(

@@ -123,3 +123,7 @@ function checkSettings() {
   });
   Logger.log(lines.join('\n'));
 }
+
+/**
+ * 아래 환경변수 자동등록 함수 삭제함
+ */

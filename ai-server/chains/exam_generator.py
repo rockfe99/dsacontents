@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from llm_provider import get_openai_llm
 
 
+# 문제 1개의 구조화 출력 스키마 - main.py가 model_dump()해서 GAS에 그대로 돌려준다.
 class ExamQuestion(BaseModel):
     question_text: str = Field(description="문제 본문")
     options: Optional[list[str]] = Field(
@@ -31,6 +32,7 @@ class ExamQuestion(BaseModel):
     )
 
 
+# with_structured_output()에 넘기는 최상위 스키마 - LLM이 문제 목록을 한 번에 반환하도록 강제한다.
 class ExamQuestionList(BaseModel):
     questions: list[ExamQuestion]
 
@@ -86,6 +88,7 @@ _LEVEL_INSTRUCTIONS = {
 }
 
 
+# 가상질문 참고자료 블록 조립 - 참고자료가 없으면 빈 문자열을 반환해 프롬프트에서 섹션 자체를 뺀다(generate()에서만 사용).
 def _build_reference_section(reference_questions: Optional[list[dict]]) -> str:
     if not reference_questions:
         return ""
@@ -95,6 +98,7 @@ def _build_reference_section(reference_questions: Optional[list[dict]]) -> str:
     return _REFERENCE_TEMPLATE.format(listing=listing)
 
 
+# 시험문제 생성 진입점 - main.py의 /exam-questions가 호출하는 이 모듈의 유일한 공개 함수(구조화 출력 1회).
 def generate(
     slide_text: str,
     question_type: Literal["multiple_choice", "short_answer", "essay"],

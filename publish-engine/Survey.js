@@ -6,7 +6,7 @@
  *  Supabase의 설문 테이블에 접근한다. 둘 다 SUPABASE_KEY(service_role)를
  *  직접 갖지 않고, 이 파일이 대신 REST API를 호출한다.
  *
- *  AI 호출(의견형 요약)은 여기서 하지 않는다 - CLAUDE.md 규칙상 AI 호출은
+ *  AI 호출(의견형 요약)은 여기서 하지 않는다 - AI 호출은
  *  전부 ai-server 경유이고, 시스템 B의 summarizeOpinions_()가 그 호출을
  *  맡는다. 이 파일은 순수 DB 접근만 담당한다.
  *

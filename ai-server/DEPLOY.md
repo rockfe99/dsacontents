@@ -4,20 +4,19 @@ Cloud Run 서비스 `dsacontents-ai-api`(리전 `asia-northeast3`)는 GitHub 저
 `rockfe99/dsacontents`(소스 하위 디렉터리 `ai-server`)와 연결되어 있다.
 `ai-server`에 커밋을 `main` 브랜치로 push하면 빌드→배포까지 자동으로 끝난다.
 
-이 문서는 **AI 연동(OpenAI·Supabase)과 분리해서**, Cloud Run ↔ GitHub ↔
-FastAPI 앱으로 이어지는 배포 경로 자체가 정상 동작하는지 확인하는 순서를
+이 문서는 **AI 연동(OpenAI·Supabase)과 분리해서**, 
+Cloud Run ↔ GitHub ↔ FastAPI 앱으로 이어지는 배포 경로 자체가 정상 동작하는지 확인하는 순서를
 규정한다. 배포가 안 될 때 어디가 문제인지 좁히는 용도로 쓴다.
 
 ## 확인용 최소 엔드포인트
 
-`main.py`에 인증·환경변수 없이 항상 고정 문자열을 반환하는 헬스체크
-엔드포인트를 추가해 두었다.
+`main.py`에 인증·환경변수 없이 항상 고정 문자열을 반환하는 테스트 엔드포인트를 추가해 두었다.
 
 ```python
 @app.get("/")
 def health_check():
     return "ai-server가 정상적으로 배포되어 실행 중입니다."
-```
+``
 
 `OPENAI_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`, `AI_SERVER_KEY` 등 환경변수가
 전혀 설정되어 있지 않아도 이 경로는 항상 응답한다 — 배포 자체의 성공 여부와

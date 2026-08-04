@@ -39,6 +39,7 @@ _BATCH_LABELS = ["Part 1", "Part 2", "Part 3"]
 _SUMMARY_THRESHOLD_SLIDES = 50
 
 
+# read_batch 노드의 구조화 출력 스키마 - 질문 목록과 다음 구간용 요약을 한 번의 호출로 함께 받는다.
 class _BatchResult(BaseModel):
     questions: list[str] = Field(
         description="이번 구간에서 이 페르소나가 궁금해할 질문 목록. 궁금한 게 없으면 빈 리스트."
@@ -48,15 +49,18 @@ class _BatchResult(BaseModel):
     )
 
 
+# 중복 정리 후 남는 질문 1건의 스키마 - 이 형태가 그대로 GAS·DB(virtual_questions.questions)에 저장된다.
 class _FilteredQuestion(BaseModel):
     batch: str = Field(description="이 질문이 처음 나온 구간(Part 1/Part 2/Part 3)")
     question: str = Field(description="질문 원문(고치지 않고 그대로)")
 
 
+# filter_questions 노드의 구조화 출력 최상위 스키마.
 class _FilteredQuestionList(BaseModel):
     questions: list[_FilteredQuestion]
 
 
+# LangGraph 노드들이 주고받는 상태 정의 - generate()가 초기값을 채우고 각 노드가 부분 갱신한다.
 class _VqState(TypedDict):
     persona_prompt: str
     batches: list[dict]
@@ -111,6 +115,7 @@ _FILTER_PROMPT_TEMPLATE = """{persona_prompt}
 """
 
 
+# 슬라이드를 Part 1/2/3 구간으로 분할 - generate()가 그래프 실행 전 준비 단계로 한 번 호출한다.
 def _split_into_batches(segments: list[dict]) -> list[dict]:
     """슬라이드 순서를 유지한 채 Part 1/2/3 구간으로 나눈다(슬라이드 수가
     3장 미만이면 그보다 적은 구간). 각 구간은 [슬라이드 N] 텍스트를 이어붙인
@@ -131,6 +136,7 @@ def _split_into_batches(segments: list[dict]) -> list[dict]:
     return batches
 
 
+# read_batch 노드 - 한 구간을 읽고 질문을 뽑은 뒤 다음 구간용 맥락(원문 또는 요약)을 누적한다(그래프가 구간 수만큼 반복 호출).
 def _read_batch(state: _VqState) -> dict:
     idx = state["batch_index"]
     batch = state["batches"][idx]
@@ -173,10 +179,12 @@ def _read_batch(state: _VqState) -> dict:
     return update
 
 
+# 조건부 엣지 판정 함수 - 남은 구간이 있으면 read_batch로 되돌리고, 다 읽었으면 filter_questions로 보낸다.
 def _route_after_batch(state: _VqState) -> str:
     return "read_batch" if state["batch_index"] < len(state["batches"]) else "filter_questions"
 
 
+# filter_questions 노드(END 직전) - 전 구간 질문을 모아 중복·유사 질문을 정리한 최종본을 만든다(화면·DB에 쓰이는 유일한 결과).
 def _filter_questions(state: _VqState) -> dict:
     if not state["all_questions"]:
         return {"final_questions": []}
@@ -193,6 +201,7 @@ def _filter_questions(state: _VqState) -> dict:
     }
 
 
+# 그래프 구성·컴파일은 모듈 로드 시 한 번만 - 요청마다 새로 만들 이유가 없다(상태는 invoke() 인자로만 전달됨).
 _graph = StateGraph(_VqState)
 _graph.add_node("read_batch", _read_batch)
 _graph.add_node("filter_questions", _filter_questions)
@@ -206,6 +215,7 @@ _graph.add_edge("filter_questions", END)
 _compiled_graph = _graph.compile()
 
 
+# 가상질문 생성 진입점 - main.py의 /virtual-questions가 호출하는 이 모듈의 유일한 공개 함수(그래프 초기 상태를 만들어 invoke).
 def generate(persona_prompt: str, slide_segments: list[dict]) -> list[dict]:
     """페르소나 프롬프트와 슬라이드 세그먼트(순서대로)를 받아, Part 1/2/3
     구간을 순서대로 읽어나가며 질문을 만들고 마지막에 중복을 정리한 최종
