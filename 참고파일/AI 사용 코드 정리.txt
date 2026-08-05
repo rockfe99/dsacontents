@@ -1,0 +1,362 @@
+[ ai-server의 AI 기능 4종 ]
+LangChain은 3가지 호출 패턴으로만 쓰이고, LangGraph는 가상질문 생성에서 쓰인다.
+
+
+0. 전체 구조
+
+GAS(system-b-dashboard)  --UrlFetchApp + X-API-Key-->  FastAPI(main.py)
+                                                          │
+                          supabase_client.py (PostgREST 읽기 전용)
+                                                          │
+                                                     chains/*.py
+                                                          │
+                                          llm_provider.get_openai_llm()
+                                                          │
+                                                       OpenAI
+
+main.py의 엔드포인트는 전부 같은 3단 구조다 — ① verify_api_key() ② Supabase에서 근거 데이터 조회 ③ 체인 호출. 
+AI 호출 전에 데이터를 다 모아두고 체인에는 완성된 텍스트만 넘긴다는 게 일관된 원칙이다(체인 안에서 DB를 다시 조회하지 않는다).
+
+# main.py:71-91  시험문제 생성 - 세 엔드포인트 모두 같은 골격
+@app.post("/exam-questions")
+def exam_questions(req: ExamRequest, x_api_key: str = Header(default="")):
+    verify_api_key(x_api_key)                                  # ① 인증
+
+    segments = get_slide_segments(req.keyword)                 # ② 근거 조회
+    if not segments:
+        raise HTTPException(status_code=404, detail="슬라이드 내용을 찾을 수 없습니다.")
+    slide_text = join_slide_text(segments)
+    reference_questions = get_virtual_questions(req.keyword, req.level)
+
+    try:
+        questions = generate_exam_questions(                    # ③ 체인 호출
+            slide_text, req.question_type, req.level, req.count, reference_questions
+        )
+    except RuntimeError as err:
+        raise HTTPException(status_code=500, detail=str(err))
+
+    return {"questions": [q.model_dump() for q in questions]}
+
+---
+1. LangChain 공통 진입점 — llm_provider.py
+
+프로젝트 전체에서 ChatOpenAI를 생성하는 유일한 파일이다. 체인들은 모델명·키를 모르고 이 함수만 부른다.
+
+# llm_provider.py:21-28
+def get_openai_llm(temperature: float = 0, timeout: float | None = None) -> ChatOpenAI:
+    if not OPENAI_KEY:
+        raise RuntimeError("OPENAI_KEY 환경변수가 설정되어 있지 않습니다.")
+    model_name = os.environ.get("OPENAI_MODEL", DEFAULT_MODEL)   # 기본 gpt-4o
+    kwargs = {"model": model_name, "api_key": OPENAI_KEY, "temperature": temperature}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
+    return ChatOpenAI(**kwargs)
+
+temperature=0 고정, 모델은 Cloud Run 환경변수 OPENAI_MODEL로 교체 가능 — 코드 수정 없이 모델을 바꾸기 위한 설계다.
+
+---
+2. LangChain 패턴 ① — 단발 호출 (opinion_summarizer.py)
+
+가장 단순한 형태. 구조화 출력도 체인 조합도 없이 문자열 프롬프트 하나 → .content 문자열 하나.
+
+# chains/opinion_summarizer.py:66-72
+def summarize(question_text: str, answers_text: str) -> str:
+    llm = get_openai_llm()
+    prompt = _PROMPT_TEMPLATE.format(
+        question_text=question_text, answers_text=answers_text
+    )
+    result = llm.invoke(prompt)
+    return result.content
+
+
+---
+3. LangChain 패턴 ② — 구조화 출력 (with_structured_output)
+
+파싱 실패 위험을 없애는 핵심 패턴. Pydantic 모델을 통째로 넘기면 LLM이 그 스키마로 응답하고, 반환값이 곧 Pydantic 인스턴스다.
+
+시험문제 생성 (exam_generator.py):
+
+# chains/exam_generator.py:25-37  스키마 정의 - description이 곧 LLM에 전달되는 필드 설명
+class ExamQuestion(BaseModel):
+    question_text: str = Field(description="문제 본문")
+    options: Optional[list[str]] = Field(
+        default=None, description="객관식 보기 목록(주관식·서술형은 null)"
+    )
+    correct_answer: str = Field(
+        description="정답(객관식은 보기 텍스트 그대로, 서술형은 채점 기준이 될 모범답안)"
+    )
+
+class ExamQuestionList(BaseModel):      # 최상위 - 문제 목록을 한 번에 반환하도록 강제
+    questions: list[ExamQuestion]
+
+# chains/exam_generator.py:109-123
+llm = get_openai_llm()
+structured_llm = llm.with_structured_output(ExamQuestionList)
+
+prompt = _PROMPT_TEMPLATE.format(
+    slide_text=slide_text,
+    reference_section=_build_reference_section(reference_questions),   # 없으면 "" → 섹션 통째로 사라짐
+    question_type_label=_TYPE_LABELS[question_type],
+    level_label=_LEVEL_LABELS[level],
+    count=count,
+    type_instruction=_TYPE_INSTRUCTIONS[question_type],
+    level_instruction=_LEVEL_INSTRUCTIONS[level],
+)
+
+result: ExamQuestionList = structured_llm.invoke(prompt)
+return result.questions
+
+
+# chains/exam_generator.py:92-98
+def _build_reference_section(reference_questions: Optional[list[dict]]) -> str:
+    if not reference_questions:
+        return ""                       # 섹션 자체를 뺀다
+    listing = "\n".join(
+        f"[{q.get('batch', '')}] {q.get('question', '')}" for q in reference_questions
+    )
+    return _REFERENCE_TEMPLATE.format(listing=listing)
+
+
+# chains/lecture_evaluator.py:61-72
+class _CoreEvaluation(BaseModel):
+    structure_review: str = Field(description="슬라이드 구성·전개 순서·개념 도입 방식에 대한 검토(슬라이드 내용만 근거)")
+    learner_signal_review: Optional[str] = Field(
+        default=None,
+        description="실시간 설문 결과·가상질문 데이터가 있을 때만 작성하는, 그 데이터를 근거로 한 검토. 둘 다 없으면 null.",
+    )
+    suggestions: list[str] = Field(description="구체적인 개선 제안 목록")
+    data_coverage: Literal["slide_only", "slide_and_signals"] = Field(...)
+
+여기서 LLM을 의도적으로 안 쓰는 부분
+리포트 맨 앞의 "근거 명시"는 코드가 직접 조립한다. "무엇을 몇 건 참고했다"는 사실 진술을 LLM에 맡기면 개수를 틀리거나 안 쓴 데이터를 썼다고 하기 때문이다.
+
+# chains/lecture_evaluator.py:170-187
+def build_evidence_basis(slide_count, survey_rows, persona_groups) -> str:
+    lines = [f"- 슬라이드 본문: 전체 {slide_count}장 텍스트"]
+    if survey_rows:
+        lines.append(f"- 실시간 설문 결과: {len(survey_rows)}건 참고함")
+    else:
+        lines.append("- 실시간 설문 결과: 없음 (아직 진행된 설문이 없습니다)")
+    active_groups = [g for g in persona_groups if g["questions"]]
+    ...
+    return "\n".join(lines)
+
+---
+4. LangChain 패턴 ③ — 도구 바인딩(웹검색), 프로젝트 유일의 tool-calling
+
+bind_tools()로 OpenAI 호스티드 웹검색을 붙인다. 검색은 OpenAI 서버가 알아서 하므로 클라이언트가 ReAct 루프를 돌 필요가 없고, 호출부는 .invoke() 한 번뿐이다.
+
+# llm_provider.py:33-50
+def get_web_search_llm(timeout: float = 25) -> ChatOpenAI:
+    ...
+    llm = ChatOpenAI(
+        model=model_name, api_key=OPENAI_KEY, temperature=0,
+        timeout=timeout,
+        use_responses_api=True,          # Responses API 필요
+    )
+    return llm.bind_tools([{"type": "web_search_preview"}])
+
+검색과 요약을 2단계로 나눈 이유 - 
+검색 도구가 걸린 호출에 "한국어로", "마크다운 금지" 같은 스타일 지시를 같이 주면 모델이 "찾은 내용을 보고하는" 쪽으로 쏠려 지시를 안 지킨다. 
+그래서 ① 검색 전용 호출로 원시 결과만 받고(언어·형식 무시), ② 도구 없는 일반 호출로 한국어 요약을 다시 쓴다.
+
+# chains/lecture_evaluator.py:314-332  generate() - 세 단계 조립
+evidence_basis = build_evidence_basis(slide_count, survey_rows, persona_groups)  # 코드
+core = _generate_core(slide_text, survey_rows, persona_groups)                   # 구조화 출력 1회
+currency_review = _generate_currency_review(core.structure_review)               # 웹검색 2단계(부가)
+
+세 번째 인자 — 검색 단계에 슬라이드 전체 텍스트가 아니라 방금 만들어진 core.structure_review(짧은 요약) 를 넘긴다. 
+핵심 평가 직후 전체 텍스트를 또 보내면 분당 토큰 한도(TPM)에 걸리기 때문이다.
+부가 기능이므로 어떤 예외든 None으로 흡수한다:
+
+# chains/lecture_evaluator.py:235-251
+def _generate_currency_review(topic_summary: str) -> Optional[str]:
+    try:
+        raw = _run_web_search(topic_summary)
+        if not raw:
+            return None
+        return _rewrite_currency_review(topic_summary, raw)
+    except Exception as err:
+        logger.warning("강의자료 평가 - 웹검색 AI 추가 의견 처리 중 예상치 못한 오류(무시하고 계속 진행): %r", err)
+        return None
+
+
+# chains/lecture_evaluator.py:264-288
+for attempt in range(1, _CURRENCY_MAX_ATTEMPTS + 1):
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        llm = get_web_search_llm(timeout=_CURRENCY_SEARCH_TIMEOUT)
+        future = executor.submit(llm.invoke, prompt)
+        result = future.result(timeout=_CURRENCY_SEARCH_TIMEOUT)   # 하드 타임아웃
+        break
+    except Exception as err:
+        ...
+        if is_last_attempt: return None
+        time.sleep(_CURRENCY_RETRY_DELAY)     # 429는 보통 순간적 초과 → 1회 재시도
+    finally:
+        executor.shutdown(wait=False)         # with 블록을 쓰지 않는 이유
+
+웹검색을 쓰면 AIMessage.content가 문자열이 아니라 블록 리스트로 온다. 
+_extract_text_content()(lecture_evaluator.py:206-224)가 두 형태를 모두 정규화하고, 
+_strip_markdown_links()가 도구가 자동 첨부한 출처 링크를 제거한다.
+
+---
+5. LangGraph — 가상질문 생성 (virtual_question_agent.py)
+
+유일한 LangGraph 사용처다. 다른 기능은 호출 1~2회로 끝나 상태 유지가 필요 없지만, 
+이 기능은 슬라이드를 Part 1→2→3으로 순서대로 읽으며 앞 구간 맥락을 누적해야 해서 상태가 필요하다.
+
+그래프 구조
+
+START → read_batch ─┐
+            ↑        │ (batch_index < 배치 개수: 다음 구간으로 루프)
+            └────────┘
+                     │ (마지막 구간까지 끝나면)
+                     ↓
+              filter_questions → END
+
+상태 정의 (TypedDict)
+
+# chains/virtual_question_agent.py:64-72
+class _VqState(TypedDict):
+    persona_prompt: str          # 페르소나 프롬프트(Supabase에서 조회)
+    batches: list[dict]          # Part 1/2/3 분할 결과
+    batch_index: int             # 현재 구간 - 조건부 엣지의 판정 기준
+    use_summary: bool            # 50장 초과 여부 → 맥락 누적 방식 결정
+    context_text: str            # 원문 누적(50장 이하)
+    context_summaries: list[str] # 요약 누적(50장 초과)
+    all_questions: list[dict]    # 구간별 원본 질문 누적
+    final_questions: list[dict]  # 중복 정리 후 최종본(반환·저장 대상)
+
+노드 1 — read_batch (루프의 몸통)
+
+각 노드는 상태 전체가 아니라 바뀐 부분만 dict로 반환하면 LangGraph가 병합한다.
+
+# chains/virtual_question_agent.py:140-179
+def _read_batch(state: _VqState) -> dict:
+    idx = state["batch_index"]
+    batch = state["batches"][idx]
+
+    # 컨텍스트 관리: 50장 초과면 원문 대신 요약을 누적
+    if state["use_summary"]:
+        context_label = "지금까지 읽은 내용 요약"
+        context = "\n".join(state["context_summaries"]) if state["context_summaries"] else "(이전 구간 없음 - 첫 구간입니다)"
+    else:
+        context_label = "지금까지 읽은 슬라이드 원문"
+        context = state["context_text"] or "(이전 구간 없음 - 첫 구간입니다)"
+
+    prompt = _BATCH_PROMPT_TEMPLATE.format(...)
+
+    llm = get_openai_llm()
+    structured_llm = llm.with_structured_output(_BatchResult)
+    result: _BatchResult = structured_llm.invoke(prompt)
+
+    new_questions = [
+        {"batch": batch["label"], "question": q.strip()}
+        for q in result.questions if q.strip()
+    ]
+
+    update: dict = {                              # 바뀐 키만 반환
+        "batch_index": idx + 1,                   # ← 이 증가가 루프 종료 조건이 된다
+        "all_questions": state["all_questions"] + new_questions,
+    }
+    if state["use_summary"]:
+        update["context_summaries"] = state["context_summaries"] + [f"[{batch['label']}] {result.batch_summary}"]
+    else:
+        update["context_text"] = (
+            f"{state['context_text']}\n\n{batch['text']}" if state["context_text"] else batch["text"]
+        )
+    return update
+
+여기서 LangChain 구조화 출력과 LangGraph 상태 관리가 맞물리는 지점이 _BatchResult다. 
+질문 목록과 다음 구간용 요약을 한 번의 호출로 함께 받아서, 요약을 위한 별도 LLM 호출을 만들지 않는다:
+
+# chains/virtual_question_agent.py:43-49
+class _BatchResult(BaseModel):
+    questions: list[str] = Field(
+        description="이번 구간에서 이 페르소나가 궁금해할 질문 목록. 궁금한 게 없으면 빈 리스트."
+    )
+    batch_summary: str = Field(
+        description="이번 구간에서 실제로 다룬 내용을 한두 문장으로 요약(다음 구간 판단용 참고자료)"
+    )
+
+조건부 엣지 — 루프의 제어
+
+# chains/virtual_question_agent.py:183-184
+def _route_after_batch(state: _VqState) -> str:
+    return "read_batch" if state["batch_index"] < len(state["batches"]) else "filter_questions"
+
+노드 2 — filter_questions (END 직전)
+
+전 구간 질문을 모아 중복·유사 질문을 한 번 더 정리한다. 이 최종본만 화면·DB에 쓰인다.
+
+# chains/virtual_question_agent.py:188-201
+def _filter_questions(state: _VqState) -> dict:
+    if not state["all_questions"]:
+        return {"final_questions": []}
+    listing = "\n".join(f"[{q['batch']}] {q['question']}" for q in state["all_questions"])
+    prompt = _FILTER_PROMPT_TEMPLATE.format(persona_prompt=state["persona_prompt"], listing=listing)
+
+    llm = get_openai_llm()
+    structured_llm = llm.with_structured_output(_FilteredQuestionList)
+    result: _FilteredQuestionList = structured_llm.invoke(prompt)
+    return {"final_questions": [{"batch": q.batch, "question": q.question} for q in result.questions]}
+
+그래프 조립 — 모듈 로드 시 1회만
+
+# chains/virtual_question_agent.py:205-215
+_graph = StateGraph(_VqState)
+_graph.add_node("read_batch", _read_batch)
+_graph.add_node("filter_questions", _filter_questions)
+_graph.set_entry_point("read_batch")
+_graph.add_conditional_edges(
+    "read_batch",
+    _route_after_batch,
+    {"read_batch": "read_batch", "filter_questions": "filter_questions"},   # 자기 자신으로 되돌아가는 루프
+)
+_graph.add_edge("filter_questions", END)
+_compiled_graph = _graph.compile()
+
+요청마다 그래프를 새로 만들지 않는다 — 상태는 전부 invoke() 인자로만 전달되므로 컴파일된 그래프는 재사용해도 안전하다.
+
+실행
+
+# chains/virtual_question_agent.py:219-241
+def generate(persona_prompt: str, slide_segments: list[dict]) -> list[dict]:
+    batches = _split_into_batches(slide_segments)
+    if not batches:
+        return []
+    initial_state: _VqState = {
+        "persona_prompt": persona_prompt,
+        "batches": batches,
+        "batch_index": 0,
+        "use_summary": len(slide_segments) > _SUMMARY_THRESHOLD_SLIDES,   # 50장
+        "context_text": "", "context_summaries": [],
+        "all_questions": [], "final_questions": [],
+    }
+    final_state = _compiled_graph.invoke(initial_state)
+    return final_state["final_questions"]
+
+이게 "에이전트"가 아닌 이유
+
+파일명이 virtual_question_agent.py지만, LLM이 도구 선택이나 종료 시점을 자율 결정하지 않는다. 
+그래프 위상과 반복 횟수(구간 수)는 코드가 고정하고, LLM은 각 노드에서 정해진 역할(질문 생성 / 중복 정리)만 수행한다. 
+자율 판정형 tool-calling 에이전트는 이 프로젝트에서 강의자료 평가의 웹검색 한 곳뿐이다.
+
+---
+6. 정리 — 기능별 사용 기술
+
+┌──────────────────┬─────────────────────────────────────────────┬───────────────────────────────┬───────────────┐
+│       기능       │               LangChain 패턴                │           LangGraph           │   호출 횟수   │
+├──────────────────┼─────────────────────────────────────────────┼───────────────────────────────┼───────────────┤
+│ 시험문제 생성    │ with_structured_output                      │ 미사용                        │ 1회           │
+├──────────────────┼─────────────────────────────────────────────┼───────────────────────────────┼───────────────┤
+│ 의견형 설문 요약 │ 단발 invoke                                 │ 미사용                        │ 1회           │
+├──────────────────┼─────────────────────────────────────────────┼───────────────────────────────┼───────────────┤
+│ 가상질문 생성    │ with_structured_output ×2종                 │ StateGraph + 조건부 엣지 루프 │ 구간 수 + 1회 │
+├──────────────────┼─────────────────────────────────────────────┼───────────────────────────────┼───────────────┤
+│ 강의자료 평가    │ with_structured_output + bind_tools(웹검색) │ 미사용                        │ 1 + 최대 3회  │
+└──────────────────┴─────────────────────────────────────────────┴───────────────────────────────┴───────────────┘
+
+쓰지 않는 LangChain 기능: LCEL 파이프(|) 조합, PromptTemplate/ChatPromptTemplate 객체, output parser, memory, LangGraph checkpointer. 
+프롬프트는 전부 순수 파이썬 f-string 템플릿 + .format()이고, 체인 조합 없이 llm.invoke()를 직접 부른다 — 기능당 호출이 1~2회라 추상화 계층을 더 얹을 이유가 없는 구조다.
